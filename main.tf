@@ -74,8 +74,8 @@ module "lambda_cloudtrail_analyzer" {
   project                         = var.project
   environment                     = var.environment
   cloudwatch_logs_retention_days  = var.cloudwatch_logs_retention_days
-  cloudtrail_bucket_id            = var.create_cloudtrail ? module.s3.cloudtrail_logs[0].id : data.aws_s3_bucket.existing_cloudtrail_logs[0].id
-  cloudtrail_bucket_arn           = var.create_cloudtrail ? module.s3.cloudtrail_logs[0].arn : data.aws_s3_bucket.existing_cloudtrail_logs[0].arn
+  cloudtrail_bucket_id            = var.create_cloudtrail ? module.cloudtrail[0].trailalerts_cloudtrail_bucket_name : data.aws_s3_bucket.existing_cloudtrail_logs[0].id
+  cloudtrail_bucket_arn           = var.create_cloudtrail ? module.cloudtrail[0].trailalerts_cloudtrail_bucket_arn : data.aws_s3_bucket.existing_cloudtrail_logs[0].arn
   trailalerts_rules_bucket_arn    = module.s3.trailalerts_rules_bucket_arn
   trailalerts_alerts_queue_arn    = module.sqs.trailalerts_alerts_queue_arn
   trailalerts_alerts_queue_url    = module.sqs.trailalerts_alerts_queue_url
