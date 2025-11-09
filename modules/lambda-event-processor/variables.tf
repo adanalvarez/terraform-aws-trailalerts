@@ -1,0 +1,16 @@
+variable "project" {}
+variable "email_endpoint" {}
+variable "enable_sns" {}
+variable "correlation_enabled" {}
+variable "source_email" {}
+variable "vpnapi_key" {}
+variable "notification_cooldown_minutes" {}
+variable "min_notification_severity" {}
+variable "environment" {}
+variable "cloudwatch_logs_retention_days" {}
+variable "security_events_table_arn" {}
+variable "security_events_table_name" {}
+variable "trailalerts_rules_bucket_arn" {}
+variable "trailalerts_alerts_queue_arn" {}
+variable "trailalerts_detection_layer_arn" {}
+variable "trailalerts_alerts_topic_arn" {}

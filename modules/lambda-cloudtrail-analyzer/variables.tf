@@ -1,0 +1,10 @@
+variable "project" {}
+variable "environment" {}
+variable "cloudwatch_logs_retention_days" {}
+variable "cloudtrail_bucket_id" {}
+variable "cloudtrail_bucket_arn" {}
+variable "trailalerts_rules_bucket_arn" {}
+variable "trailalerts_alerts_queue_arn" {}
+variable "trailalerts_alerts_queue_url" {}
+variable "trailalerts_detection_layer_arn" {}
+variable "trailalerts_rules_bucket" {}
