@@ -15,6 +15,8 @@ It is aimed at people/companies who do **not** need a SIEM but still want owners
 * **Total control of the alerting pipeline:** Decide exactly what you want to see, correlate related events, and publish notifications via SNS or SES.
 * **All-serverless:** Built on Lambda, S3, SQS and DynamoDB, so you pay only for what you actually run.
 
+
+
 ## Motivation
 
 While developing [TrailDiscover](https://traildiscover.cloud/) I confirmed my initial hunch: attackers repeat the same techniques and target the same AWS services, meaning a small set of good detections can catch many real-world attacks.
@@ -367,7 +369,9 @@ Quick usage (minimal):
 
 ```hcl
 module "trailalerts" {
-  source        = ""
+  source  = "adanalvarez/trailalerts/aws"
+  version = "0.2.2"
+
   aws_region    = "us-west-2"
   email_endpoint = "alerts@example.com"
 }
