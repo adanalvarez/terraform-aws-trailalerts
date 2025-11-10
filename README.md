@@ -7,15 +7,13 @@
 
 # TrailAlerts
 
-TrailAlerts is a **native, serverless cloud-detection tool (not a SIEM)** that lets you define simple rules (written in open Sigma syntax) as code and get rich alerts about events in AWS.
+Public [Terraform registry module](https://registry.terraform.io/modules/adanalvarez/trailalerts/aws/latest) to deploy TrailAlerts, a native, serverless cloud-detection tool (not a SIEM) that lets you define simple rules (written in open Sigma syntax) as code and get rich alerts about events in AWS.
 
 It is aimed at people/companies who do **not** need a SIEM but still want ownership of their detections and find CloudWatch or EventBridge rules hard to manage.
 
 * **Sigma rules:** Drop in community Sigma rules or write your own and version-control them with the rest of your infrastructure.
 * **Total control of the alerting pipeline:** Decide exactly what you want to see, correlate related events, and publish notifications via SNS or SES.
 * **All-serverless:** Built on Lambda, S3, SQS and DynamoDB, so you pay only for what you actually run.
-
-
 
 ## Motivation
 
