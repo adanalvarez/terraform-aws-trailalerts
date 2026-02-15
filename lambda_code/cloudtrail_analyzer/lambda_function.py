@@ -60,8 +60,10 @@ def build_rule_index(rules: List[Dict[str, Any]]) -> Tuple[Dict[Tuple[str, str],
             continue
         
         # Collect all eventSource and eventName values across all detection blocks
+        # Only consider exact-match fields (no modifiers like |contains, |startswith, |re)
         event_sources: Set[str] = set()
         event_names: Set[str] = set()
+        has_modifier_on_key_fields = False
         
         for block_name, block_criteria in detection.items():
             if block_name == 'condition':
@@ -70,21 +72,29 @@ def build_rule_index(rules: List[Dict[str, Any]]) -> Tuple[Dict[Tuple[str, str],
                 continue
             
             for field, value in block_criteria.items():
-                # Determine base field name and ignore fields with modifiers (|contains, |startswith, |re, etc.) for indexing
                 base_field = field.split('|')[0].rstrip(':').strip()
                 has_modifier = '|' in field
                 
-                if not has_modifier and base_field == 'eventSource' and isinstance(value, str):
+                # If eventSource or eventName use modifiers, this rule
+                # cannot be safely indexed — fall back to wildcard
+                if has_modifier and base_field in ('eventSource', 'eventName'):
+                    has_modifier_on_key_fields = True
+                    break
+                
+                if base_field == 'eventSource' and isinstance(value, str):
                     event_sources.add(value)
-                elif not has_modifier and base_field == 'eventName':
+                elif base_field == 'eventName':
                     if isinstance(value, str):
                         event_names.add(value)
                     elif isinstance(value, list):
                         event_names.update(v for v in value if isinstance(v, str))
+            
+            if has_modifier_on_key_fields:
+                break
         
         # Only index rules that specify BOTH eventSource and eventName exactly
-        # (no modifiers like |contains, |startswith, |re on these fields)
-        if event_sources and event_names:
+        # and have no modifiers on these fields
+        if event_sources and event_names and not has_modifier_on_key_fields:
             for source in event_sources:
                 for name in event_names:
                     indexed[(source, name)].append(rule)
@@ -359,35 +369,60 @@ def _build_sqs_message(rule: Dict[str, Any], record: Dict[str, Any]) -> Dict[str
     }
 
 
+MAX_SQS_RETRIES = 3
+
+
 def _flush_sqs_batch(messages: List[Dict[str, Any]]) -> None:
     """
     Send a batch of messages to SQS (up to 10 per API call).
+    Retries partially failed messages up to MAX_SQS_RETRIES times.
     
     Args:
         messages: List of SQS message entries with Id and MessageBody
+        
+    Raises:
+        RuntimeError: If messages still fail after all retries
+        Exception: If the SQS API call itself fails
     """
     if not messages:
         return
     
     try:
-        response = sqs.send_message_batch(
-            QueueUrl=SQS_QUEUE_URL,
-            Entries=messages
-        )
-        
-        successful = response.get('Successful', [])
-        failed = response.get('Failed', [])
-        
-        if successful:
-            logger.info(f"SQS batch sent: {len(successful)} message(s) delivered")
-        if failed:
+        to_send = messages
+        for attempt in range(MAX_SQS_RETRIES):
+            response = sqs.send_message_batch(
+                QueueUrl=SQS_QUEUE_URL,
+                Entries=to_send
+            )
+            
+            successful = response.get('Successful', [])
+            failed = response.get('Failed', [])
+            
+            if successful:
+                logger.info(f"SQS batch sent: {len(successful)} message(s) delivered")
+            
+            if not failed:
+                return
+            
+            # Log failures and prepare retry for failed messages
+            failed_ids = {f['Id'] for f in failed}
             for failure in failed:
-                logger.error(
-                    f"SQS batch message failed: Id={failure['Id']}, "
-                    f"Code={failure['Code']}, Message={failure['Message']}"
+                logger.warning(
+                    f"SQS batch message failed (attempt {attempt + 1}/{MAX_SQS_RETRIES}): "
+                    f"Id={failure['Id']}, Code={failure['Code']}, Message={failure['Message']}"
                 )
+            to_send = [m for m in to_send if m['Id'] in failed_ids]
+        
+        # All retries exhausted — raise to trigger Lambda retry
+        raise RuntimeError(
+            f"SQS batch send failed after {MAX_SQS_RETRIES} retries: "
+            f"{len(to_send)} message(s) could not be delivered"
+        )
+    except (RuntimeError):
+        raise
     except Exception as e:
         logger.error(f"Error sending SQS batch ({len(messages)} messages): {str(e)}")
+        raise
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
