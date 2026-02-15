@@ -91,18 +91,18 @@ class CloudTrailPlugin(EventSourcePlugin):
         Returns:
             str: HTML section for the event
         """
-        # Extract event details
-        event_type = event.get('eventType', 'unknown')
-        actor = self.extract_actor(event)
-        source_ip = event.get('sourceIPAddress', 'unknown')
-        timestamp = event.get('eventTime', 'unknown')
-        region = event.get('awsRegion', 'unknown')
-        account_id = event.get('recipientAccountId', 'unknown')
-        event_name = event.get('eventName', 'unknown')
-        event_source = event.get('eventSource', 'unknown')
+        # Extract and escape event details
+        event_type = html.escape(str(event.get('eventType', 'unknown')))
+        actor = html.escape(str(self.extract_actor(event)))
+        source_ip = html.escape(str(event.get('sourceIPAddress', 'unknown')))
+        timestamp = html.escape(str(event.get('eventTime', 'unknown')))
+        region = html.escape(str(event.get('awsRegion', 'unknown')))
+        account_id = html.escape(str(event.get('recipientAccountId', 'unknown')))
+        event_name = html.escape(str(event.get('eventName', 'unknown')))
+        event_source = html.escape(str(event.get('eventSource', 'unknown')))
         
         # Generate HTML section
-        html = f"""
+        section = f"""
         <div class='section'>
             <div class='section-title'>Event Information</div>
             <div>Event Type: <span class='value'>{event_type}</span></div>
@@ -116,7 +116,7 @@ class CloudTrailPlugin(EventSourcePlugin):
         </div>
         """
         
-        return html
+        return section
     
     def get_event_details(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """

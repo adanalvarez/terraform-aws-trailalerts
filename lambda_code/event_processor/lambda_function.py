@@ -17,7 +17,6 @@ from datetime import datetime, timedelta
 
 # Import plugin system
 from plugins.registry import PluginRegistry
-from plugins.config import PluginConfig
 
 # Configure structured logging
 logger = logging.getLogger()
@@ -38,7 +37,6 @@ exception_helper = ExceptionHelper(correlation_bucket) if correlation_bucket els
 
 # Initialize plugin system
 plugin_registry = PluginRegistry()
-plugin_config = PluginConfig()
 
 # Required environment variables
 REQUIRED_ENV_VARS = {
@@ -54,8 +52,7 @@ OPTIONAL_ENV_VARS = {
     "CORRELATION_RULES_BUCKET": "S3 bucket containing correlation and threshold rules",
     "CORRELATION_ENABLED": "Boolean to enable correlation and threshold processing",
     "NOTIFICATION_COOLDOWN_MINUTES": "Global cooldown period in minutes between notifications",
-    "MIN_NOTIFICATION_SEVERITY": "Minimum severity level for sending notifications",
-    "ENABLED_PLUGINS": "JSON array of enabled plugin names"
+    "MIN_NOTIFICATION_SEVERITY": "Minimum severity level for sending notifications"
 }
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:

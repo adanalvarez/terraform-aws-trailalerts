@@ -1,0 +1,65 @@
+name: Lambda Tests
+
+on:
+  pull_request:
+    paths:
+      - "lambda_code/**"
+      - ".github/workflows/lambda-tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "lambda_code/**"
+      - ".github/workflows/lambda-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-cloudtrail-analyzer:
+    name: CloudTrail Analyzer Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lambda_code/cloudtrail_analyzer
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: scripts/lambda-layer/requirements.txt
+
+      - name: Install dependencies
+        run: pip install pytest pyyaml
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  test-event-processor:
+    name: Event Processor Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lambda_code/event_processor
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: scripts/lambda-layer/requirements.txt
+
+      - name: Install dependencies
+        run: pip install pytest
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
