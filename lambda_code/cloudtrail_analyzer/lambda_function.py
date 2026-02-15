@@ -6,7 +6,9 @@ import logging
 import yaml
 import hashlib
 import time
-from typing import Dict, List, Any, Optional, Tuple
+import uuid
+from collections import defaultdict
+from typing import Dict, List, Any, Optional, Tuple, Set
 from sigma_matcher import matches_sigma_rule
 
 logger = logging.getLogger()
@@ -18,12 +20,84 @@ s3_client = boto3.client('s3')
 SQS_QUEUE_URL = os.environ['SQS_QUEUE_URL']
 TRAILALERTS_BUCKET = os.environ['TRAILALERTS_BUCKET']
 
+# SQS batch size limit
+SQS_BATCH_SIZE = 10
+
 # Module-level caches
 sigma_rules_cache: Optional[List[Dict[str, Any]]] = None
 sigma_rules_etag_hash: Optional[str] = None
 last_s3_list_time: float = 0 
 s3_list_cache: Optional[List[Dict[str, Any]]] = None 
 S3_LIST_CACHE_TTL = 300
+
+# Rule index: maps (eventSource, eventName) -> list of rules that could match
+# Rules with no specific eventSource/eventName filter go into a wildcard list
+rule_index: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None
+wildcard_rules: Optional[List[Dict[str, Any]]] = None
+
+
+def build_rule_index(rules: List[Dict[str, Any]]) -> Tuple[Dict[Tuple[str, str], List[Dict[str, Any]]], List[Dict[str, Any]]]:
+    """
+    Build an index of rules keyed by (eventSource, eventName) for fast lookup.
+    
+    Rules that specify both eventSource and eventName in any detection block
+    are indexed under that key pair. Rules that don't specify one or both
+    go into the wildcard list and are evaluated against every record.
+    
+    Args:
+        rules: List of loaded Sigma rules
+        
+    Returns:
+        Tuple of (indexed_rules dict, wildcard_rules list)
+    """
+    indexed: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    wildcards: List[Dict[str, Any]] = []
+    
+    for rule in rules:
+        detection = rule.get('detection', {})
+        if not detection:
+            wildcards.append(rule)
+            continue
+        
+        # Collect all eventSource and eventName values across all detection blocks
+        event_sources: Set[str] = set()
+        event_names: Set[str] = set()
+        
+        for block_name, block_criteria in detection.items():
+            if block_name == 'condition':
+                continue
+            if not isinstance(block_criteria, dict):
+                continue
+            
+            for field, value in block_criteria.items():
+                # Strip modifiers (|contains, |startswith, etc.) for index keys
+                base_field = field.split('|')[0].rstrip(':').strip()
+                
+                if base_field == 'eventSource' and isinstance(value, str):
+                    event_sources.add(value)
+                elif base_field == 'eventName':
+                    if isinstance(value, str):
+                        event_names.add(value)
+                    elif isinstance(value, list):
+                        event_names.update(v for v in value if isinstance(v, str))
+        
+        # Only index rules that specify BOTH eventSource and eventName exactly
+        # (no modifiers like |contains, |startswith, |re on these fields)
+        if event_sources and event_names:
+            for source in event_sources:
+                for name in event_names:
+                    indexed[(source, name)].append(rule)
+            logger.debug(f"Indexed rule '{rule.get('title', 'unknown')}' under {len(event_sources) * len(event_names)} key(s)")
+        else:
+            wildcards.append(rule)
+            logger.debug(f"Rule '{rule.get('title', 'unknown')}' added to wildcard list (eventSource={bool(event_sources)}, eventName={bool(event_names)})")
+    
+    logger.info(
+        f"Rule index built: {len(indexed)} key(s) covering "
+        f"{sum(len(v) for v in indexed.values())} indexed rule entries, "
+        f"{len(wildcards)} wildcard rule(s)"
+    )
+    return dict(indexed), wildcards
 
 
 def list_s3_objects_cached(bucket_name: str, prefix: str) -> List[Dict[str, Any]]:
@@ -126,9 +200,9 @@ def load_sigma_rules(bucket: str) -> List[Dict[str, Any]]:
 def reload_sigma_rules_if_needed() -> None:
     """
     Reload Sigma rules if the cache is empty or the bucket content has changed.
-    Updates the global sigma_rules_cache and sigma_rules_etag_hash.
+    Updates the global sigma_rules_cache, sigma_rules_etag_hash, and rule index.
     """
-    global sigma_rules_cache, sigma_rules_etag_hash
+    global sigma_rules_cache, sigma_rules_etag_hash, rule_index, wildcard_rules
 
     try:
         current_etag_hash = compute_s3_files_hash(TRAILALERTS_BUCKET)
@@ -136,6 +210,8 @@ def reload_sigma_rules_if_needed() -> None:
             logger.info("Reloading Sigma rules from S3...")
             sigma_rules_cache = load_sigma_rules(TRAILALERTS_BUCKET)
             sigma_rules_etag_hash = current_etag_hash
+            # Rebuild the rule index whenever rules change
+            rule_index, wildcard_rules = build_rule_index(sigma_rules_cache)
     except Exception as e:
         logger.error(f"Error reloading Sigma rules: {str(e)}")
 
@@ -167,9 +243,38 @@ def fetch_s3_object(bucket: str, key: str) -> str:
         return ""
 
 
+def get_candidate_rules(record: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Get the list of candidate Sigma rules for a given CloudTrail record
+    using the pre-built rule index.
+    
+    Returns indexed rules matching the record's (eventSource, eventName)
+    plus all wildcard rules that must be checked against every record.
+    
+    Args:
+        record: A single CloudTrail record
+        
+    Returns:
+        List of Sigma rules that could potentially match this record
+    """
+    candidates = list(wildcard_rules) if wildcard_rules else []
+    
+    if rule_index:
+        event_source = record.get('eventSource', '')
+        event_name = record.get('eventName', '')
+        key = (event_source, event_name)
+        if key in rule_index:
+            candidates.extend(rule_index[key])
+    
+    return candidates
+
+
 def process_cloudtrail_records(content: str) -> None:
     """
     Process CloudTrail records and match them against Sigma rules.
+    
+    Uses the pre-built rule index to evaluate only candidate rules per record,
+    and batches SQS messages for efficient sending.
     
     Args:
         content: JSON string containing CloudTrail records
@@ -179,58 +284,109 @@ def process_cloudtrail_records(content: str) -> None:
     """
     try:
         records = json.loads(content).get('Records', [])
+        pending_messages: List[Dict[str, Any]] = []
+        total_rules_evaluated = 0
+        total_matches = 0
+        
         for record in records:
             logger.debug("Processing record: %s", json.dumps(record.get('eventName', 'Unknown')))
-            for rule in sigma_rules_cache:
+            candidates = get_candidate_rules(record)
+            total_rules_evaluated += len(candidates)
+            
+            for rule in candidates:
                 if matches_sigma_rule(record, rule):
-                    send_match_to_sqs(rule, record)
+                    total_matches += 1
+                    message = _build_sqs_message(rule, record)
+                    pending_messages.append(message)
+                    
+                    # Flush when batch is full
+                    if len(pending_messages) >= SQS_BATCH_SIZE:
+                        _flush_sqs_batch(pending_messages)
+                        pending_messages = []
+        
+        # Flush any remaining messages
+        if pending_messages:
+            _flush_sqs_batch(pending_messages)
+        
+        logger.info(
+            f"Processed {len(records)} records, evaluated {total_rules_evaluated} "
+            f"rule checks (vs {len(records) * len(sigma_rules_cache)} without index), "
+            f"found {total_matches} match(es)"
+        )
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding JSON content: {str(e)}")
     except Exception as e:
         logger.error(f"Error processing CloudTrail records: {str(e)}")
 
 
-def send_match_to_sqs(rule: Dict[str, Any], record: Dict[str, Any]) -> None:
+def _build_sqs_message(rule: Dict[str, Any], record: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Send a matched event to the SQS queue.
+    Build an SQS message entry for a matched rule/record pair.
     
     Args:
         rule: The matched Sigma rule
         record: The matched CloudTrail record
         
-    Example:
-        >>> send_match_to_sqs({'id': '1', 'title': 'Test Rule'}, {'eventName': 'CreateUser'})
+    Returns:
+        Dict containing Id and MessageBody for SQS batch sending
     """
+    # Create a clean copy of the rule to avoid serialization issues
+    rule_copy = {
+        'id': rule.get('id'),
+        'title': rule.get('title', 'Unknown Sigma Rule'),
+        'level': rule.get('level', 'info'),
+        'description': rule.get('description', ''),
+        'logsource': rule.get('logsource', {}),
+        'detection': rule.get('detection', {}),
+        'status': rule.get('status', 'experimental')
+    }
+    
+    # Add a sigmaEventSource field to identify this as a CloudTrail event
+    record_copy = record.copy()
+    record_copy["sigmaEventSource"] = "CloudTrail"
+    
+    message_body = {
+        "sigma_rule_id": rule.get('id'),
+        "sigma_rule_title": rule.get('title', 'Unknown Sigma Rule'),
+        "matched_event": record_copy,
+        "sigma_rule_data": rule_copy
+    }
+    
+    return {
+        'Id': uuid.uuid4().hex[:8],
+        'MessageBody': json.dumps(message_body)
+    }
+
+
+def _flush_sqs_batch(messages: List[Dict[str, Any]]) -> None:
+    """
+    Send a batch of messages to SQS (up to 10 per API call).
+    
+    Args:
+        messages: List of SQS message entries with Id and MessageBody
+    """
+    if not messages:
+        return
+    
     try:
-        # Create a clean copy of the rule to avoid any potential serialization issues
-        rule_copy = {
-            'id': rule.get('id'),
-            'title': rule.get('title', 'Unknown Sigma Rule'),
-            'level': rule.get('level', 'info'),
-            'description': rule.get('description', ''),
-            'logsource': rule.get('logsource', {}),
-            'detection': rule.get('detection', {}),
-            'status': rule.get('status', 'experimental')
-        }
-        
-        # Add a sigmaEventSource field to identify this as a CloudTrail event
-        record_copy = record.copy()
-        record_copy["sigmaEventSource"] = "CloudTrail"
-        
-        message_body = {
-            "sigma_rule_id": rule.get('id'),
-            "sigma_rule_title": rule.get('title', 'Unknown Sigma Rule'),
-            "matched_event": record_copy,  # Use the modified record with sigmaEventSource
-            "sigma_rule_data": rule_copy
-        }
-        
-        response = sqs.send_message(
+        response = sqs.send_message_batch(
             QueueUrl=SQS_QUEUE_URL,
-            MessageBody=json.dumps(message_body)
+            Entries=messages
         )
-        logger.info(f"Match found: {rule.get('title', 'Unknown')}. SQS MessageId: {response['MessageId']}")
+        
+        successful = response.get('Successful', [])
+        failed = response.get('Failed', [])
+        
+        if successful:
+            logger.info(f"SQS batch sent: {len(successful)} message(s) delivered")
+        if failed:
+            for failure in failed:
+                logger.error(
+                    f"SQS batch message failed: Id={failure['Id']}, "
+                    f"Code={failure['Code']}, Message={failure['Message']}"
+                )
     except Exception as e:
-        logger.error(f"Error sending match to SQS: {str(e)}")
+        logger.error(f"Error sending SQS batch ({len(messages)} messages): {str(e)}")
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:

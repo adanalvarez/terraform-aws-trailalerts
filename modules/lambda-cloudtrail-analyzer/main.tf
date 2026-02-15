@@ -74,8 +74,8 @@ resource "aws_lambda_function" "trailalerts_cloudtrail_analyzer" {
   handler       = "lambda_function.lambda_handler"
   role          = aws_iam_role.trailalerts_cloudtrail_analyzer_role.arn
   layers        = [var.trailalerts_detection_layer_arn]
-  timeout       = 30
-  memory_size   = 256
+  timeout       = var.analyzer_timeout
+  memory_size   = var.analyzer_memory_size
 
   filename         = data.archive_file.trailalerts_cloudtrail_analyzer_zip.output_path
   source_code_hash = data.archive_file.trailalerts_cloudtrail_analyzer_zip.output_base64sha256
