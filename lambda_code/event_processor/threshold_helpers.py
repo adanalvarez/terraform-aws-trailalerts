@@ -166,8 +166,8 @@ class ThresholdHelper:
                     # Log details of each event for debugging
                     if actor_events:
                         logger.info(f"Events from actor '{actor}':")
-                        for idx, event in enumerate(actor_events):
-                            logger.info(f"  Event {idx+1}: {event.get('timestamp')} - {event.get('eventName')}")
+                        for idx, evt in enumerate(actor_events):
+                            logger.info(f"  Event {idx+1}: {evt.get('timestamp')} - {evt.get('eventName')}")
                     else:
                         logger.info(f"No previous events found for actor '{actor}' in the time window")
                     

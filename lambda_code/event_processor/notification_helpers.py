@@ -1,5 +1,4 @@
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 
@@ -105,7 +104,7 @@ class NotificationHelper:
                     'sk': 'LAST_NOTIFICATION',
                     'ruleTitle': rule_title,
                     'lastNotificationTime': now_iso,
-                    'ttl': int(time.mktime((now + timedelta(days=30)).timetuple()))  
+                    'ttl': int((now + timedelta(days=30)).timestamp())  
                 }
             )
             

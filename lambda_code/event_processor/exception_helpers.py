@@ -96,21 +96,7 @@ class ExceptionHelper:
         rule_exceptions = exceptions[rule_title]
         
         # Get actor from the event
-        actor = event.get('actor', '')
-        
-        # If actor is not directly in the event, try to extract it
-        if not actor and 'userIdentity' in event:
-            user_identity = event.get('userIdentity', {})
-            if user_identity.get('type') == 'IAMUser':
-                actor = user_identity.get('arn', '')
-            elif user_identity.get('type') == 'AssumedRole':
-                actor = user_identity.get('arn', '')
-            elif user_identity.get('type') == 'Root':
-                actor = 'arn:aws:iam::root'
-            elif user_identity.get('type') == 'AWSService':
-                actor = user_identity.get('invokedBy', '')
-            elif user_identity.get('type') == 'FederatedUser':
-                actor = user_identity.get('arn', '')
+        actor = event.get('actor', '') or self._get_actor_from_event(event)
         
         # Get source IP from the event
         source_ip = event.get('sourceIPAddress', '')

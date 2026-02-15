@@ -1,10 +1,9 @@
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from botocore.exceptions import ClientError
-import time
 
 logger = logging.getLogger()
 
@@ -40,7 +39,7 @@ class DynamoDBHelper:
             # Get TTL from rule if available, otherwise use default (5 minutes)
             ttl_seconds = rule.get("ttlSeconds", 300)
             ttl_time = now + timedelta(seconds=ttl_seconds)
-            ttl_timestamp = int(time.mktime(ttl_time.timetuple()))
+            ttl_timestamp = int(ttl_time.replace(tzinfo=timezone.utc).timestamp())
             logger.info(f"Storing THRESHOLD event: rule='{rule_title}', actor='{actor}', TTL={ttl_seconds}s")
         elif event_type == "correlation":
             # For correlation events, use CORRELATION#{actor} as pk
@@ -48,7 +47,7 @@ class DynamoDBHelper:
             
             # Use longer TTL for correlation events (30 days)
             ttl_time = now + timedelta(days=30)
-            ttl_timestamp = int(time.mktime(ttl_time.timetuple()))
+            ttl_timestamp = int(ttl_time.replace(tzinfo=timezone.utc).timestamp())
             logger.info(f"Storing CORRELATION event: actor='{actor}', TTL=30 days")
         else:
             # For regular events, use EVENT as pk
@@ -56,7 +55,7 @@ class DynamoDBHelper:
             
             # Use standard TTL for regular events (30 days)
             ttl_time = now + timedelta(days=30)
-            ttl_timestamp = int(time.mktime(ttl_time.timetuple()))
+            ttl_timestamp = int(ttl_time.replace(tzinfo=timezone.utc).timestamp())
             logger.info(f"Storing REGULAR event: rule='{rule_title}', actor='{actor}', TTL=30 days")
 
         # Generate sort key with timestamp and unique ID
