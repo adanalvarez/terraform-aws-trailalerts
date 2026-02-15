@@ -56,6 +56,7 @@ module "lambda_event_processor" {
   security_events_table_arn       = var.correlation_enabled ? module.dynamodb[0].security_events_table_arn : ""
   security_events_table_name      = var.correlation_enabled ? module.dynamodb[0].security_events_table_name : ""
   trailalerts_rules_bucket_arn    = module.s3.trailalerts_rules_bucket_arn
+  trailalerts_rules_bucket        = module.s3.trailalerts_rules_bucket_name
   trailalerts_alerts_queue_arn    = module.sqs.trailalerts_alerts_queue_arn
   trailalerts_detection_layer_arn = module.lambda_layer.trailalerts_detection_layer_arn
   trailalerts_alerts_topic_arn    = var.enable_sns ? module.sns[0].trailalerts_alerts_topic_arn : ""

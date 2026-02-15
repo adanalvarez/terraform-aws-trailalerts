@@ -11,6 +11,7 @@ variable "cloudwatch_logs_retention_days" {}
 variable "security_events_table_arn" {}
 variable "security_events_table_name" {}
 variable "trailalerts_rules_bucket_arn" {}
+variable "trailalerts_rules_bucket" {}
 variable "trailalerts_alerts_queue_arn" {}
 variable "trailalerts_detection_layer_arn" {}
 variable "trailalerts_alerts_topic_arn" {}
