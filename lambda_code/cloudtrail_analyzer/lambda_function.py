@@ -70,12 +70,13 @@ def build_rule_index(rules: List[Dict[str, Any]]) -> Tuple[Dict[Tuple[str, str],
                 continue
             
             for field, value in block_criteria.items():
-                # Strip modifiers (|contains, |startswith, etc.) for index keys
+                # Determine base field name and ignore fields with modifiers (|contains, |startswith, |re, etc.) for indexing
                 base_field = field.split('|')[0].rstrip(':').strip()
+                has_modifier = '|' in field
                 
-                if base_field == 'eventSource' and isinstance(value, str):
+                if not has_modifier and base_field == 'eventSource' and isinstance(value, str):
                     event_sources.add(value)
-                elif base_field == 'eventName':
+                elif not has_modifier and base_field == 'eventName':
                     if isinstance(value, str):
                         event_names.add(value)
                     elif isinstance(value, list):
