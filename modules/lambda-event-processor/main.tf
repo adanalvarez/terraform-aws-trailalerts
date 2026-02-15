@@ -31,7 +31,7 @@ resource "aws_lambda_function" "trailalerts_event_processor" {
       SOURCE_EMAIL                  = var.source_email
       VPNAPI_KEY                    = var.vpnapi_key
       CORRELATION_ENABLED           = tostring(var.correlation_enabled)
-      CORRELATION_RULES_BUCKET      = var.trailalerts_rules_bucket_arn
+      CORRELATION_RULES_BUCKET      = var.trailalerts_rules_bucket
       NOTIFICATION_COOLDOWN_MINUTES = tostring(var.notification_cooldown_minutes)
       MIN_NOTIFICATION_SEVERITY     = var.min_notification_severity
     }
