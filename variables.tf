@@ -93,3 +93,19 @@ variable "is_multi_region_trail" {
   type        = bool
   default     = true
 }
+
+# ---------------------------------------------------------------------------
+# Dashboard (optional)
+# ---------------------------------------------------------------------------
+
+variable "enable_dashboard" {
+  description = "Whether to create the web dashboard for managing rules and viewing alert history. Creates Cognito, API Gateway, Lambda, S3, and CloudFront resources."
+  type        = bool
+  default     = false
+}
+
+variable "dashboard_admin_emails" {
+  description = "List of email addresses that will be created as admin users in the dashboard Cognito User Pool. Only used when enable_dashboard is true."
+  type        = list(string)
+  default     = []
+}

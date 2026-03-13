@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${project_name} Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #242833;
+            --border: #2e3345;
+            --text: #e1e4ed;
+            --text-muted: #8b8fa3;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --critical: #ef4444;
+            --high: #f97316;
+            --medium: #eab308;
+            --low: #3b82f6;
+            --info: #64748b;
+            --success: #22c55e;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        /* Layout */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2rem;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        .header .nav { display: flex; gap: 0.5rem; }
+        .header .user-info { display: flex; align-items: center; gap: 1rem; }
+        .nav-btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-muted);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.15s;
+        }
+        .nav-btn:hover { border-color: var(--accent); color: var(--text); }
+        .nav-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-danger { background: var(--critical); color: #fff; }
+        .btn-danger:hover { opacity: 0.9; }
+        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); }
+        .btn-sm { padding: 0.25rem 0.75rem; font-size: 0.8rem; }
+        .container { max-width: 1280px; margin: 0 auto; padding: 1.5rem 2rem; }
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* Stats cards */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }
+        .stat-card .label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-card .value { font-size: 1.75rem; font-weight: 700; margin-top: 0.25rem; }
+
+        /* Table */
+        .table-wrap {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .table-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+        td { padding: 0.75rem 1rem; font-size: 0.875rem; border-bottom: 1px solid var(--border); }
+        tr:hover td { background: var(--surface2); }
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-critical { background: rgba(239,68,68,0.15); color: var(--critical); }
+        .badge-high { background: rgba(249,115,22,0.15); color: var(--high); }
+        .badge-medium { background: rgba(234,179,8,0.15); color: var(--medium); }
+        .badge-low { background: rgba(59,130,246,0.15); color: var(--low); }
+        .badge-info { background: rgba(100,116,139,0.15); color: var(--info); }
+
+        /* Editor */
+        .editor-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .editor-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        textarea.yaml-editor {
+            width: 100%;
+            min-height: 500px;
+            padding: 1rem;
+            background: var(--bg);
+            color: var(--text);
+            border: none;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+            resize: vertical;
+            tab-size: 2;
+        }
+        textarea.yaml-editor:focus { outline: none; }
+
+        /* Filter inputs */
+        .filter-input, .filter-select {
+            padding: 0.4rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.85rem;
+        }
+        .filter-input:focus, .filter-select:focus { outline: none; border-color: var(--accent); }
+
+        /* Alert detail modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 800px;
+            width: 95%;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        .modal h3 { margin-bottom: 1rem; }
+        .modal pre {
+            background: var(--bg);
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.8rem;
+            line-height: 1.5;
+        }
+
+        /* Toast notifications */
+        .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 300; display: flex; flex-direction: column; gap: 0.5rem; }
+        .toast {
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            animation: slideIn 0.3s ease;
+        }
+        .toast-success { background: rgba(34,197,94,0.15); color: var(--success); border: 1px solid rgba(34,197,94,0.3); }
+        .toast-error { background: rgba(239,68,68,0.15); color: var(--critical); border: 1px solid rgba(239,68,68,0.3); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* Loading */
+        .loading { text-align: center; padding: 3rem; color: var(--text-muted); }
+        .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Login screen */
+        .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-box { text-align: center; }
+        .login-box h2 { margin-bottom: 1rem; }
+        .login-box p { color: var(--text-muted); margin-bottom: 2rem; }
+    </style>
+</head>
+<body>
+
+<div id="login-screen" class="login-screen">
+    <div class="login-box">
+        <h2>${project_name} Dashboard</h2>
+        <p>Security detection rules management &amp; alert history</p>
+        <button class="btn btn-primary" onclick="login()" style="padding: 0.75rem 2rem; font-size: 1rem;">Sign In</button>
+    </div>
+</div>
+
+<div id="app" style="display:none;">
+    <div class="header">
+        <h1>${project_name} Dashboard</h1>
+        <div class="nav">
+            <button class="nav-btn active" data-page="overview" onclick="showPage('overview')">Overview</button>
+            <button class="nav-btn" data-page="rules" onclick="showPage('rules')">Rules</button>
+            <button class="nav-btn" data-page="postprocessing" onclick="showPage('postprocessing')">Postprocessing</button>
+            <button class="nav-btn" data-page="exceptions" onclick="showPage('exceptions')">Exceptions</button>
+            <button class="nav-btn" data-page="alerts" onclick="showPage('alerts')">Alerts</button>
+        </div>
+        <div class="user-info">
+            <span id="user-email" style="font-size:0.85rem; color:var(--text-muted);"></span>
+            <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Overview Page -->
+        <div id="page-overview" class="page active">
+            <div class="stats" id="stats-cards">
+                <div class="stat-card"><div class="label">Total Alerts (24h)</div><div class="value" id="stat-total">-</div></div>
+                <div class="stat-card"><div class="label">Critical</div><div class="value" id="stat-critical" style="color:var(--critical);">-</div></div>
+                <div class="stat-card"><div class="label">High</div><div class="value" id="stat-high" style="color:var(--high);">-</div></div>
+                <div class="stat-card"><div class="label">Medium</div><div class="value" id="stat-medium" style="color:var(--medium);">-</div></div>
+                <div class="stat-card"><div class="label">Active Rules</div><div class="value" id="stat-rules">-</div></div>
+            </div>
+            <div class="table-wrap">
+                <div class="table-toolbar"><strong>Top Triggered Rules (24h)</strong></div>
+                <table>
+                    <thead><tr><th>Rule</th><th>Count</th></tr></thead>
+                    <tbody id="top-rules-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Rules Page -->
+        <div id="page-rules" class="page">
+            <div id="rules-list-view">
+                <div class="table-wrap">
+                    <div class="table-toolbar">
+                        <strong>Sigma Rules</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newRule()">+ New Rule</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>Title</th><th>Severity</th><th>Status</th><th>Last Modified</th><th>Actions</th></tr></thead>
+                        <tbody id="rules-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="rules-edit-view" style="display:none;">
+                <div class="editor-container">
+                    <div class="editor-header">
+                        <div style="display:flex; align-items:center; gap:1rem;">
+                            <button class="btn btn-secondary btn-sm" onclick="backToRulesList()">&larr; Back</button>
+                            <span id="editor-title" style="font-weight:600;"></span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button class="btn btn-danger btn-sm" id="delete-rule-btn" onclick="deleteCurrentRule()">Delete</button>
+                            <button class="btn btn-primary btn-sm" onclick="saveRule()">Save</button>
+                        </div>
+                    </div>
+                    <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Page -->
+        <div id="page-alerts" class="page">
+            <div class="table-wrap">
+                <div class="table-toolbar">
+                    <strong>Alert History</strong>
+                    <input type="text" class="filter-input" id="alert-rule-filter" placeholder="Filter by rule..." />
+                    <select class="filter-select" id="alert-severity-filter">
+                        <option value="">All severities</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                        <option value="info">Info</option>
+                    </select>
+                    <select class="filter-select" id="alert-hours-filter">
+                        <option value="1">Last 1h</option>
+                        <option value="6">Last 6h</option>
+                        <option value="24" selected>Last 24h</option>
+                        <option value="72">Last 3d</option>
+                        <option value="168">Last 7d</option>
+                        <option value="720">Last 30d</option>
+                    </select>
+                    <button class="btn btn-secondary btn-sm" onclick="loadAlerts()">Search</button>
+                </div>
+                <table>
+                    <thead><tr><th>Time</th><th>Rule</th><th>Severity</th><th>Event</th><th>Actor</th><th>Source IP</th><th>Actions</th></tr></thead>
+                    <tbody id="alerts-body"></tbody>
+                </table>
+                <div id="alerts-pagination" style="padding:1rem; text-align:center; display:none;">
+                    <button class="btn btn-secondary btn-sm" onclick="loadMoreAlerts()">Load More</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Postprocessing Page -->
+        <div id="page-postprocessing" class="page">
+            <div id="pp-list-view">
+                <!-- Correlation Rules -->
+                <div class="table-wrap" style="margin-bottom:1.5rem;">
+                    <div class="table-toolbar">
+                        <strong>Correlation Rules</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingRule('correlation')">+ New Correlation</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>Sigma Rule</th><th>Look For</th><th>Window (min)</th><th>Severity Adj.</th><th>File</th><th>Actions</th></tr></thead>
+                        <tbody id="correlation-body"></tbody>
+                    </table>
+                </div>
+                <!-- Threshold Rules -->
+                <div class="table-wrap" style="margin-bottom:1.5rem;">
+                    <div class="table-toolbar">
+                        <strong>Threshold Rules</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingRule('threshold')">+ New Threshold</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>Sigma Rule</th><th>Count</th><th>Window (min)</th><th>Severity Adj.</th><th>File</th><th>Actions</th></tr></thead>
+                        <tbody id="threshold-body"></tbody>
+                    </table>
+                </div>
+                <!-- Files -->
+                <div class="table-wrap">
+                    <div class="table-toolbar">
+                        <strong>Postprocessing Files</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingFile()">+ New File</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>File</th><th>Rules</th><th>Last Modified</th><th>Actions</th></tr></thead>
+                        <tbody id="pp-files-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="pp-edit-view" style="display:none;">
+                <div class="editor-container">
+                    <div class="editor-header">
+                        <div style="display:flex; align-items:center; gap:1rem;">
+                            <button class="btn btn-secondary btn-sm" onclick="backToPPList()">&larr; Back</button>
+                            <span id="pp-editor-title" style="font-weight:600;"></span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button class="btn btn-danger btn-sm" id="delete-pp-btn" onclick="deleteCurrentPP()">Delete</button>
+                            <button class="btn btn-primary btn-sm" onclick="savePP()">Save</button>
+                        </div>
+                    </div>
+                    <textarea class="yaml-editor" id="pp-editor" spellcheck="false"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exceptions Page -->
+        <div id="page-exceptions" class="page">
+            <div id="exc-list-view">
+                <div class="table-wrap">
+                    <div class="table-toolbar">
+                        <strong>Exception Rules</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newException()">+ Add Rule Exception</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>Rule Title</th><th>Excluded Actors</th><th>Excluded IPs</th><th>Regex Patterns</th><th>Actions</th></tr></thead>
+                        <tbody id="exceptions-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="exc-edit-view" style="display:none;">
+                <div class="editor-container">
+                    <div class="editor-header">
+                        <div style="display:flex; align-items:center; gap:1rem;">
+                            <button class="btn btn-secondary btn-sm" onclick="backToExcList()">&larr; Back</button>
+                            <span id="exc-editor-title" style="font-weight:600;">Exceptions (JSON)</span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button class="btn btn-primary btn-sm" onclick="saveExceptions()">Save</button>
+                        </div>
+                    </div>
+                    <textarea class="yaml-editor" id="exc-editor" spellcheck="false"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Detail Modal -->
+<div class="modal-overlay" id="alert-modal">
+    <div class="modal">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h3>Alert Detail</h3>
+            <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+        </div>
+        <div id="alert-detail-content"></div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// -------------------------------------------------------
+// Configuration (injected by Terraform templatefile)
+// -------------------------------------------------------
+const CONFIG = {
+    apiEndpoint: '',  // API is proxied through CloudFront at same origin
+    cognitoDomain: '${cognito_domain}',
+    cognitoClientId: '${cognito_client_id}',
+    cognitoUserPoolId: '${cognito_user_pool_id}',
+    region: '${aws_region}',
+};
+
+const COGNITO_BASE = 'https://' + CONFIG.cognitoDomain + '.auth.' + CONFIG.region + '.amazoncognito.com';
+const REDIRECT_URI = window.location.origin + '/';
+
+// -------------------------------------------------------
+// Auth (Cognito Hosted UI + Authorization Code + PKCE)
+// -------------------------------------------------------
+let accessToken = null;
+let idToken = null;
+let currentRuleKey = null;
+let alertsNextToken = null;
+
+function generateCodeVerifier() {
+    const arr = new Uint8Array(32);
+    crypto.getRandomValues(arr);
+    return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+async function generateCodeChallenge(verifier) {
+    const data = new TextEncoder().encode(verifier);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+async function login() {
+    const verifier = generateCodeVerifier();
+    sessionStorage.setItem('pkce_verifier', verifier);
+    const challenge = await generateCodeChallenge(verifier);
+
+    const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: CONFIG.cognitoClientId,
+        redirect_uri: REDIRECT_URI,
+        scope: 'openid email profile',
+        code_challenge_method: 'S256',
+        code_challenge: challenge,
+    });
+
+    window.location.href = COGNITO_BASE + '/oauth2/authorize?' + params.toString();
+}
+
+async function handleCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (!code) return false;
+
+    const verifier = sessionStorage.getItem('pkce_verifier');
+    if (!verifier) { toast('Auth error: missing PKCE verifier', 'error'); return false; }
+
+    try {
+        const resp = await fetch(COGNITO_BASE + '/oauth2/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                grant_type: 'authorization_code',
+                client_id: CONFIG.cognitoClientId,
+                code: code,
+                redirect_uri: REDIRECT_URI,
+                code_verifier: verifier,
+            }),
+        });
+
+        if (!resp.ok) throw new Error('Token exchange failed');
+        const tokens = await resp.json();
+
+        accessToken = tokens.access_token;
+        idToken = tokens.id_token;
+
+        // Store tokens (short-lived, secure enough for session)
+        sessionStorage.setItem('access_token', accessToken);
+        sessionStorage.setItem('id_token', idToken);
+        sessionStorage.setItem('refresh_token', tokens.refresh_token || '');
+        sessionStorage.removeItem('pkce_verifier');
+
+        // Clean URL
+        window.history.replaceState({}, '', '/');
+        return true;
+    } catch (e) {
+        toast('Authentication failed: ' + e.message, 'error');
+        return false;
+    }
+}
+
+function logout() {
+    sessionStorage.clear();
+    const params = new URLSearchParams({
+        client_id: CONFIG.cognitoClientId,
+        logout_uri: REDIRECT_URI,
+    });
+    window.location.href = COGNITO_BASE + '/logout?' + params.toString();
+}
+
+function isAuthenticated() {
+    accessToken = sessionStorage.getItem('access_token');
+    idToken = sessionStorage.getItem('id_token');
+    return !!accessToken;
+}
+
+function getUserEmail() {
+    if (!idToken) return '';
+    try {
+        const payload = JSON.parse(atob(idToken.split('.')[1]));
+        return payload.email || payload['cognito:username'] || '';
+    } catch { return ''; }
+}
+
+// -------------------------------------------------------
+// API Helpers
+// -------------------------------------------------------
+async function api(path, options = {}) {
+    const resp = await fetch(CONFIG.apiEndpoint + path, {
+        ...options,
+        headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+        },
+    });
+
+    if (resp.status === 401) {
+        toast('Session expired. Please login again.', 'error');
+        setTimeout(login, 1500);
+        throw new Error('Unauthorized');
+    }
+
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'API error');
+    return data;
+}
+
+// -------------------------------------------------------
+// Toast
+// -------------------------------------------------------
+function toast(msg, type = 'success') {
+    const container = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = 'toast toast-' + type;
+    el.textContent = msg;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+}
+
+// -------------------------------------------------------
+// Navigation
+// -------------------------------------------------------
+function showPage(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    document.querySelector('[data-page="' + page + '"]').classList.add('active');
+
+    if (page === 'overview') loadOverview();
+    if (page === 'rules') loadRules();
+    if (page === 'alerts') loadAlerts();
+    if (page === 'postprocessing') loadPostprocessing();
+    if (page === 'exceptions') loadExceptions();
+}
+
+// -------------------------------------------------------
+// Overview
+// -------------------------------------------------------
+async function loadOverview() {
+    try {
+        const [stats, rulesData] = await Promise.all([
+            api('/api/alerts/stats?hours=24').catch(() => ({ totalAlerts: 0, bySeverity: {}, topRules: [] })),
+            api('/api/rules').catch(() => ({ count: 0 })),
+        ]);
+
+        document.getElementById('stat-total').textContent = stats.totalAlerts || 0;
+        document.getElementById('stat-critical').textContent = (stats.bySeverity || {}).critical || 0;
+        document.getElementById('stat-high').textContent = (stats.bySeverity || {}).high || 0;
+        document.getElementById('stat-medium').textContent = (stats.bySeverity || {}).medium || 0;
+        document.getElementById('stat-rules').textContent = rulesData.count || 0;
+
+        const tbody = document.getElementById('top-rules-body');
+        tbody.innerHTML = '';
+        (stats.topRules || []).forEach(r => {
+            tbody.innerHTML += '<tr><td>' + esc(r.rule) + '</td><td>' + r.count + '</td></tr>';
+        });
+        if (!stats.topRules || stats.topRules.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:var(--text-muted);">No alerts in the last 24 hours</td></tr>';
+        }
+    } catch (e) {
+        toast('Failed to load overview: ' + e.message, 'error');
+    }
+}
+
+// -------------------------------------------------------
+// Rules
+// -------------------------------------------------------
+async function loadRules() {
+    document.getElementById('rules-list-view').style.display = '';
+    document.getElementById('rules-edit-view').style.display = 'none';
+
+    const tbody = document.getElementById('rules-body');
+    tbody.innerHTML = '<tr><td colspan="5" class="loading"><div class="spinner"></div></td></tr>';
+
+    try {
+        const data = await api('/api/rules');
+        tbody.innerHTML = '';
+
+        if (data.rules.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:2rem;">No rules found. Click "+ New Rule" to create one.</td></tr>';
+            return;
+        }
+
+        data.rules.sort((a, b) => a.title.localeCompare(b.title));
+        data.rules.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td>' + esc(r.title) + '</td>' +
+                '<td><span class="badge badge-' + (r.level||'info') + '">' + esc(r.level||'?') + '</span></td>' +
+                '<td>' + esc(r.status||'') + '</td>' +
+                '<td>' + new Date(r.lastModified).toLocaleString() + '</td>' +
+                '<td><button class="btn btn-secondary btn-sm" onclick="editRule(\'' + escAttr(r.key) + '\')">Edit</button></td>';
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--critical);">Failed to load rules: ' + esc(e.message) + '</td></tr>';
+    }
+}
+
+async function editRule(key) {
+    document.getElementById('rules-list-view').style.display = 'none';
+    document.getElementById('rules-edit-view').style.display = '';
+    document.getElementById('editor-title').textContent = key;
+    document.getElementById('delete-rule-btn').style.display = '';
+    currentRuleKey = key;
+
+    try {
+        const data = await api('/api/rules/' + encodeURIComponent(key));
+        document.getElementById('yaml-editor').value = data.content;
+    } catch (e) {
+        toast('Failed to load rule: ' + e.message, 'error');
+    }
+}
+
+function newRule() {
+    document.getElementById('rules-list-view').style.display = 'none';
+    document.getElementById('rules-edit-view').style.display = '';
+    document.getElementById('editor-title').textContent = 'New Rule';
+    document.getElementById('delete-rule-btn').style.display = 'none';
+    currentRuleKey = null;
+
+    document.getElementById('yaml-editor').value =
+        'title: New Detection Rule\n' +
+        'id: \n' +
+        'status: experimental\n' +
+        'level: medium\n' +
+        'description: Describe what this rule detects\n' +
+        'logsource:\n' +
+        '  product: aws\n' +
+        '  service: cloudtrail\n' +
+        'detection:\n' +
+        '  selection:\n' +
+        '    eventSource: \n' +
+        '    eventName: \n' +
+        '  condition: selection\n';
+}
+
+async function saveRule() {
+    const content = document.getElementById('yaml-editor').value;
+    let key = currentRuleKey;
+
+    if (!key) {
+        key = prompt('Enter filename for the rule (e.g. my-detection.yaml):');
+        if (!key) return;
+        if (!key.endsWith('.yaml') && !key.endsWith('.yml')) key += '.yaml';
+    }
+
+    try {
+        await api('/api/rules/' + encodeURIComponent(key), { method: 'PUT', body: content });
+        currentRuleKey = key;
+        document.getElementById('editor-title').textContent = key;
+        document.getElementById('delete-rule-btn').style.display = '';
+        toast('Rule saved successfully');
+    } catch (e) {
+        toast('Failed to save: ' + e.message, 'error');
+    }
+}
+
+async function deleteCurrentRule() {
+    if (!currentRuleKey) return;
+    if (!confirm('Delete rule "' + currentRuleKey + '"? This cannot be undone.')) return;
+
+    try {
+        await api('/api/rules/' + encodeURIComponent(currentRuleKey), { method: 'DELETE' });
+        toast('Rule deleted');
+        loadRules();
+    } catch (e) {
+        toast('Failed to delete: ' + e.message, 'error');
+    }
+}
+
+function backToRulesList() {
+    loadRules();
+}
+
+// -------------------------------------------------------
+// Alerts
+// -------------------------------------------------------
+async function loadAlerts(append = false) {
+    const rule = document.getElementById('alert-rule-filter').value;
+    const severity = document.getElementById('alert-severity-filter').value;
+    const hours = document.getElementById('alert-hours-filter').value;
+
+    if (!append) alertsNextToken = null;
+
+    const tbody = document.getElementById('alerts-body');
+    if (!append) tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>';
+
+    try {
+        let url = '/api/alerts?hours=' + hours + '&limit=50';
+        if (rule) url += '&rule=' + encodeURIComponent(rule);
+        if (severity) url += '&severity=' + encodeURIComponent(severity);
+        if (alertsNextToken) url += '&nextToken=' + encodeURIComponent(alertsNextToken);
+
+        const data = await api(url);
+
+        if (!append) tbody.innerHTML = '';
+
+        if (data.alerts.length === 0 && !append) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No alerts found for the selected filters</td></tr>';
+            document.getElementById('alerts-pagination').style.display = 'none';
+            return;
+        }
+
+        data.alerts.forEach(a => {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td style="white-space:nowrap;">' + esc(formatTime(a.timestamp)) + '</td>' +
+                '<td>' + esc(a.sigmaRuleTitle || '') + '</td>' +
+                '<td><span class="badge badge-' + (a.severity||'info') + '">' + esc(a.severity||'?') + '</span></td>' +
+                '<td>' + esc(a.eventName || '') + '</td>' +
+                '<td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.actor || '') + '</td>' +
+                '<td>' + esc(a.sourceIp || '') + '</td>' +
+                '<td><button class="btn btn-secondary btn-sm" onclick="viewAlertDetail(\'' + escAttr(a.pk) + '\',\'' + escAttr(a.sk) + '\')">Detail</button></td>';
+            tbody.appendChild(tr);
+        });
+
+        alertsNextToken = data.nextToken || null;
+        document.getElementById('alerts-pagination').style.display = alertsNextToken ? '' : 'none';
+
+    } catch (e) {
+        if (!append) tbody.innerHTML = '<tr><td colspan="7" style="color:var(--critical);">Failed to load alerts: ' + esc(e.message) + '</td></tr>';
+        else toast('Failed to load more alerts: ' + e.message, 'error');
+    }
+}
+
+function loadMoreAlerts() {
+    loadAlerts(true);
+}
+
+async function viewAlertDetail(pk, sk) {
+    const modal = document.getElementById('alert-modal');
+    const content = document.getElementById('alert-detail-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    modal.classList.add('active');
+
+    try {
+        const data = await api('/api/alerts/detail?pk=' + encodeURIComponent(pk) + '&sk=' + encodeURIComponent(sk));
+        const a = data.alert;
+        let rawEvent = '';
+        try { rawEvent = JSON.stringify(JSON.parse(a.rawEvent || '{}'), null, 2); } catch { rawEvent = a.rawEvent || ''; }
+
+        content.innerHTML =
+            '<div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:1rem;">' +
+            '<div><strong>Rule:</strong> ' + esc(a.sigmaRuleTitle || '') + '</div>' +
+            '<div><strong>Severity:</strong> <span class="badge badge-' + (a.severity||'info') + '">' + esc(a.severity||'') + '</span></div>' +
+            '<div><strong>Event:</strong> ' + esc(a.eventName || '') + '</div>' +
+            '<div><strong>Time:</strong> ' + esc(a.timestamp || '') + '</div>' +
+            '<div><strong>Actor:</strong> ' + esc(a.actor || '') + '</div>' +
+            '<div><strong>Source IP:</strong> ' + esc(a.sourceIp || '') + '</div>' +
+            '<div><strong>Account:</strong> ' + esc(a.accountId || '') + '</div>' +
+            '<div><strong>User Agent:</strong> ' + esc(a.userAgent || '') + '</div>' +
+            '</div>' +
+            '<h4 style="margin-bottom:0.5rem;">Raw CloudTrail Event</h4>' +
+            '<pre>' + esc(rawEvent) + '</pre>';
+    } catch (e) {
+        content.innerHTML = '<p style="color:var(--critical);">Failed to load detail: ' + esc(e.message) + '</p>';
+    }
+}
+
+function closeModal() {
+    document.getElementById('alert-modal').classList.remove('active');
+}
+
+// Close modal on overlay click
+document.getElementById('alert-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// -------------------------------------------------------
+// Postprocessing Rules
+// -------------------------------------------------------
+let ppRulesCache = [];
+let ppCurrentKey = null;
+
+async function loadPostprocessing() {
+    const corrBody = document.getElementById('correlation-body');
+    const thrBody = document.getElementById('threshold-body');
+    const filesBody = document.getElementById('pp-files-body');
+    corrBody.innerHTML = thrBody.innerHTML = filesBody.innerHTML =
+        '<tr><td colspan="6"><div class="loading"><div class="spinner"></div></div></td></tr>';
+
+    try {
+        const data = await api('/api/postprocessing');
+        const correlationRules = data.correlationRules || [];
+        const thresholdRules = data.thresholdRules || [];
+        const files = data.files || [];
+
+        corrBody.innerHTML = '';
+        thrBody.innerHTML = '';
+        filesBody.innerHTML = '';
+
+        correlationRules.forEach(rule => {
+            corrBody.innerHTML += '<tr>' +
+                '<td>' + esc(rule.sigmaRuleTitle || '') + '</td>' +
+                '<td>' + esc((rule.lookFor || []).join(', ')) + '</td>' +
+                '<td>' + (rule.windowMinutes || '') + '</td>' +
+                '<td>' + esc(rule.adjustSeverity || '-') + '</td>' +
+                '<td>' + esc(rule._file || '') + '</td>' +
+                '<td><button class="btn btn-secondary btn-sm" onclick="editPPFile(\'' + escAttr(rule._file || '') + '\')">Edit</button></td>' +
+                '</tr>';
+        });
+
+        thresholdRules.forEach(rule => {
+            thrBody.innerHTML += '<tr>' +
+                '<td>' + esc(rule.sigmaRuleTitle || '') + '</td>' +
+                '<td>' + (rule.thresholdCount || '') + '</td>' +
+                '<td>' + (rule.windowMinutes || '') + '</td>' +
+                '<td>' + esc(rule.adjustSeverity || '-') + '</td>' +
+                '<td>' + esc(rule._file || '') + '</td>' +
+                '<td><button class="btn btn-secondary btn-sm" onclick="editPPFile(\'' + escAttr(rule._file || '') + '\')">Edit</button></td>' +
+                '</tr>';
+        });
+
+        if (corrBody.innerHTML === '') corrBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No correlation rules</td></tr>';
+        if (thrBody.innerHTML === '') thrBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No threshold rules</td></tr>';
+
+        files.forEach(f => {
+            filesBody.innerHTML += '<tr>' +
+                '<td>' + esc(f.key) + '</td>' +
+                '<td>' + (f.ruleCount || 0) + '</td>' +
+                '<td>' + formatTime(f.lastModified) + '</td>' +
+                '<td style="display:flex; gap:0.5rem;">' +
+                '<button class="btn btn-secondary btn-sm" onclick="editPPFile(\'' + escAttr(f.key) + '\')">Edit</button>' +
+                '<button class="btn btn-danger btn-sm" onclick="deletePPFile(\'' + escAttr(f.key) + '\')">Delete</button>' +
+                '</td></tr>';
+        });
+        if (filesBody.innerHTML === '') filesBody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No files</td></tr>';
+    } catch (e) {
+        corrBody.innerHTML = '<tr><td colspan="6" style="color:var(--critical);">Error: ' + esc(e.message) + '</td></tr>';
+        thrBody.innerHTML = '';
+        filesBody.innerHTML = '';
+    }
+}
+
+async function editPPFile(key) {
+    ppCurrentKey = key;
+    document.getElementById('pp-editor-title').textContent = key;
+    document.getElementById('delete-pp-btn').style.display = '';
+    document.getElementById('pp-editor').value = 'Loading...';
+    document.getElementById('pp-list-view').style.display = 'none';
+    document.getElementById('pp-edit-view').style.display = '';
+
+    try {
+        const data = await api('/api/postprocessing/' + encodeURIComponent(key));
+        // data.content is a raw JSON string from S3; pretty-print it
+        const parsed = JSON.parse(data.content);
+        document.getElementById('pp-editor').value = JSON.stringify(parsed, null, 2);
+    } catch (e) {
+        document.getElementById('pp-editor').value = '// Error loading: ' + e.message;
+    }
+}
+
+function newPostprocessingRule(type) {
+    ppCurrentKey = null;
+    document.getElementById('pp-editor-title').textContent = 'New ' + type + ' rule';
+    document.getElementById('delete-pp-btn').style.display = 'none';
+    document.getElementById('pp-list-view').style.display = 'none';
+    document.getElementById('pp-edit-view').style.display = '';
+
+    const template = type === 'correlation'
+        ? { type: 'correlation', sigmaRuleTitle: '', lookFor: ['field1', 'field2'], windowMinutes: 10, adjustSeverity: 'high' }
+        : { type: 'threshold', sigmaRuleTitle: '', thresholdCount: 5, windowMinutes: 10, adjustSeverity: 'critical' };
+    document.getElementById('pp-editor').value = JSON.stringify(template, null, 2);
+}
+
+function newPostprocessingFile() {
+    ppCurrentKey = null;
+    document.getElementById('pp-editor-title').textContent = 'New postprocessing file';
+    document.getElementById('delete-pp-btn').style.display = 'none';
+    document.getElementById('pp-list-view').style.display = 'none';
+    document.getElementById('pp-edit-view').style.display = '';
+
+    const template = { type: 'correlation', sigmaRuleTitle: 'ExampleRule', lookFor: ['field1'], windowMinutes: 10, adjustSeverity: 'high' };
+    document.getElementById('pp-editor').value = JSON.stringify(template, null, 2);
+}
+
+async function savePP() {
+    const editor = document.getElementById('pp-editor');
+    let content;
+    try { content = JSON.parse(editor.value); } catch (e) {
+        alert('Invalid JSON: ' + e.message);
+        return;
+    }
+
+    // Lambda expects a JSON array of rules
+    if (!Array.isArray(content)) content = [content];
+
+    let key = ppCurrentKey;
+    if (!key) {
+        key = prompt('Enter filename (e.g. my_rule.json):');
+        if (!key) return;
+        if (!key.endsWith('.json')) key += '.json';
+    }
+
+    try {
+        await api('/api/postprocessing/' + encodeURIComponent(key), { method: 'PUT', body: JSON.stringify(content) });
+        ppCurrentKey = key;
+        document.getElementById('pp-editor-title').textContent = key;
+        document.getElementById('delete-pp-btn').style.display = '';
+        alert('Saved successfully.');
+        backToPPList();
+    } catch (e) {
+        alert('Save failed: ' + e.message);
+    }
+}
+
+async function deletePPFile(key) {
+    if (!confirm('Delete ' + key + '? This cannot be undone.')) return;
+    try {
+        await api('/api/postprocessing/' + encodeURIComponent(key), { method: 'DELETE' });
+        loadPostprocessing();
+    } catch (e) {
+        alert('Delete failed: ' + e.message);
+    }
+}
+
+async function deleteCurrentPP() {
+    if (!ppCurrentKey) return;
+    await deletePPFile(ppCurrentKey);
+    backToPPList();
+}
+
+function backToPPList() {
+    document.getElementById('pp-list-view').style.display = '';
+    document.getElementById('pp-edit-view').style.display = 'none';
+    loadPostprocessing();
+}
+
+// -------------------------------------------------------
+// Exceptions
+// -------------------------------------------------------
+let exceptionsCache = {};
+
+async function loadExceptions() {
+    const tbody = document.getElementById('exceptions-body');
+    tbody.innerHTML = '<tr><td colspan="5"><div class="loading"><div class="spinner"></div></div></td></tr>';
+
+    try {
+        const data = await api('/api/exceptions');
+        exceptionsCache = data.exceptions || {};
+        renderExceptionsTable();
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--critical);">Error: ' + esc(e.message) + '</td></tr>';
+    }
+}
+
+function renderExceptionsTable() {
+    const tbody = document.getElementById('exceptions-body');
+    tbody.innerHTML = '';
+    const keys = Object.keys(exceptionsCache);
+    if (keys.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No exception rules configured</td></tr>';
+        return;
+    }
+    keys.sort().forEach(rule => {
+        const exc = exceptionsCache[rule] || {};
+        const actors = (exc.excludedActors || []).length;
+        const ips = (exc.excludedSourceIPs || []).length;
+        const regex = (exc.excludedActorsRegex || []).length;
+        tbody.innerHTML += '<tr>' +
+            '<td>' + esc(rule) + '</td>' +
+            '<td>' + actors + '</td>' +
+            '<td>' + ips + '</td>' +
+            '<td>' + regex + '</td>' +
+            '<td style="display:flex; gap:0.5rem;">' +
+            '<button class="btn btn-secondary btn-sm" onclick="editException(\'' + escAttr(rule) + '\')">Edit</button>' +
+            '<button class="btn btn-danger btn-sm" onclick="removeException(\'' + escAttr(rule) + '\')">Remove</button>' +
+            '</td></tr>';
+    });
+}
+
+function editException(rule) {
+    document.getElementById('exc-editor-title').textContent = rule ? ('Exception: ' + rule) : 'Exceptions (JSON)';
+    document.getElementById('exc-list-view').style.display = 'none';
+    document.getElementById('exc-edit-view').style.display = '';
+
+    if (rule && exceptionsCache[rule]) {
+        document.getElementById('exc-editor').value = JSON.stringify({ [rule]: exceptionsCache[rule] }, null, 2);
+    } else {
+        document.getElementById('exc-editor').value = JSON.stringify(exceptionsCache, null, 2);
+    }
+}
+
+function editAllExceptions() {
+    document.getElementById('exc-editor-title').textContent = 'All Exceptions (JSON)';
+    document.getElementById('exc-list-view').style.display = 'none';
+    document.getElementById('exc-edit-view').style.display = '';
+    document.getElementById('exc-editor').value = JSON.stringify(exceptionsCache, null, 2);
+}
+
+function newException() {
+    const rule = prompt('Enter the Sigma rule title to add exceptions for:');
+    if (!rule) return;
+    if (exceptionsCache[rule]) {
+        editException(rule);
+        return;
+    }
+    exceptionsCache[rule] = { excludedActors: [], excludedSourceIPs: [], excludedActorsRegex: [] };
+    editException(rule);
+}
+
+async function removeException(rule) {
+    if (!confirm('Remove all exceptions for "' + rule + '"?')) return;
+    delete exceptionsCache[rule];
+    try {
+        await api('/api/exceptions', { method: 'PUT', body: JSON.stringify(exceptionsCache) });
+        renderExceptionsTable();
+    } catch (e) {
+        alert('Failed to save: ' + e.message);
+        loadExceptions();
+    }
+}
+
+async function saveExceptions() {
+    const editor = document.getElementById('exc-editor');
+    let parsed;
+    try { parsed = JSON.parse(editor.value); } catch (e) {
+        alert('Invalid JSON: ' + e.message);
+        return;
+    }
+    // Merge the edited fragment into the full cache
+    Object.assign(exceptionsCache, parsed);
+
+    try {
+        await api('/api/exceptions', { method: 'PUT', body: JSON.stringify(exceptionsCache) });
+        alert('Exceptions saved successfully.');
+        backToExcList();
+    } catch (e) {
+        alert('Save failed: ' + e.message);
+    }
+}
+
+function backToExcList() {
+    document.getElementById('exc-list-view').style.display = '';
+    document.getElementById('exc-edit-view').style.display = 'none';
+    loadExceptions();
+}
+
+// -------------------------------------------------------
+// Utilities
+// -------------------------------------------------------
+function esc(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str || '');
+    return div.innerHTML;
+}
+
+function escAttr(str) {
+    return String(str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleString(); } catch { return ts; }
+}
+
+// -------------------------------------------------------
+// Init
+// -------------------------------------------------------
+(async function init() {
+    // Check for callback code
+    if (window.location.search.includes('code=')) {
+        const ok = await handleCallback();
+        if (!ok) return;
+    }
+
+    if (isAuthenticated()) {
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app').style.display = '';
+        document.getElementById('user-email').textContent = getUserEmail();
+        loadOverview();
+    }
+})();
+</script>
+</body>
+</html>
