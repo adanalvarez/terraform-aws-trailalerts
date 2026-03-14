@@ -123,7 +123,7 @@ resource "null_resource" "update_cognito_callbacks" {
         --allowed-o-auth-scopes openid email profile \
         --supported-identity-providers COGNITO \
         --allowed-o-auth-flows-user-pool-client \
-        --explicit-auth-flows ALLOW_REFRESH_TOKEN_AUTH ALLOW_USER_SRP_AUTH \
+        --explicit-auth-flows ALLOW_REFRESH_TOKEN_AUTH ALLOW_USER_SRP_AUTH ALLOW_USER_PASSWORD_AUTH \
         --prevent-user-existence-errors ENABLED \
         --access-token-validity 1 \
         --id-token-validity 1 \
