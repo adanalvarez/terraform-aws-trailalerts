@@ -28,6 +28,15 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "dashboard_site" {
   }
 }
 
+# Upload logo
+resource "aws_s3_object" "logo" {
+  bucket       = aws_s3_bucket.dashboard_site.id
+  key          = "logo.png"
+  source       = "${path.module}/../../images/TrailAlerts.png"
+  content_type = "image/png"
+  etag         = filemd5("${path.module}/../../images/TrailAlerts.png")
+}
+
 # Upload index.html with rendered config
 resource "aws_s3_object" "index_html" {
   bucket = aws_s3_bucket.dashboard_site.id
@@ -186,7 +195,7 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
       override        = true
     }
     content_security_policy {
-      content_security_policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://${var.cognito_domain}.auth.${data.aws_region.current.id}.amazoncognito.com; img-src 'self' data:; font-src 'self';"
+      content_security_policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://cognito-idp.${data.aws_region.current.id}.amazonaws.com; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com;"
       override                = true
     }
   }

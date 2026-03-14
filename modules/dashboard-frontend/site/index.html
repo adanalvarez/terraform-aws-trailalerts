@@ -5,166 +5,245 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${project_name} Dashboard</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+
         :root {
-            --bg: #0f1117;
-            --surface: #1a1d27;
-            --surface2: #242833;
-            --border: #2e3345;
-            --text: #e1e4ed;
-            --text-muted: #8b8fa3;
-            --accent: #6366f1;
-            --accent-hover: #818cf8;
-            --critical: #ef4444;
-            --high: #f97316;
-            --medium: #eab308;
-            --low: #3b82f6;
-            --info: #64748b;
-            --success: #22c55e;
+            /* Brand — Light Surface */
+            --bg: #8ECAE6;
+            --surface: #FFFFFF;
+            --surface-alt: #F5F6F8;
+            --border: #D1D5DB;
+            --border-light: #E8EAED;
+            --text: #01253D;
+            --text-body: #2B2D31;
+            --text-muted: #6B7280;
+
+            /* Brand Accents */
+            --accent: #17A2B8;
+            --accent-hover: #045A72;
+            --sky: #8ECAE6;
+            --ink: #01253D;
+            --deep-cyan: #045A72;
+            --amber: #F0A500;
+
+            /* Semantic */
+            --critical: #dc2626;
+            --high: #ea580c;
+            --medium: #d97706;
+            --low: #0e7490;
+            --info: #0284c7;
+            --success: #16a34a;
+
+            /* Typography */
+            --font: 'Inter', 'Roboto', system-ui, -apple-system, sans-serif;
+            --mono: 'JetBrains Mono', 'Courier New', monospace;
+
+            /* Shape */
+            --radius: 10px;
+            --radius-sm: 6px;
+            --shadow: 0 1px 3px rgba(1, 37, 61, 0.06);
+            --shadow-md: 0 2px 6px rgba(1, 37, 61, 0.08);
+            --shadow-lg: 0 4px 16px rgba(1, 37, 61, 0.10);
+            --transition: all 0.2s ease;
         }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            font-family: var(--font);
             background: var(--bg);
-            color: var(--text);
+            color: var(--text-body);
             min-height: 100vh;
+            font-size: 15px;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
-        /* Layout */
+
+        /* ── Header ─────────────────────────────────────── */
         .header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 1rem 2rem;
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            height: 56px;
+            background: var(--ink);
             position: sticky;
             top: 0;
             z-index: 100;
         }
-        .header h1 { font-size: 1.25rem; font-weight: 600; }
-        .header .nav { display: flex; gap: 0.5rem; }
-        .header .user-info { display: flex; align-items: center; gap: 1rem; }
+        .header-brand { display: flex; align-items: center; gap: 10px; }
+        .header-logo { height: 28px; width: auto; flex-shrink: 0; }
+        .header-title { font-size: 15px; font-weight: 600; color: #fff; letter-spacing: -0.01em; white-space: nowrap; }
+        .header .nav { display: flex; gap: 2px; }
+        .header .user-info { display: flex; align-items: center; gap: 12px; }
+        .user-email { font-size: 13px; color: rgba(255,255,255,0.50); }
+
         .nav-btn {
-            padding: 0.5rem 1rem;
-            border: 1px solid var(--border);
-            background: transparent;
-            color: var(--text-muted);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.875rem;
-            transition: all 0.15s;
-        }
-        .nav-btn:hover { border-color: var(--accent); color: var(--text); }
-        .nav-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-        .btn {
-            padding: 0.5rem 1rem;
+            padding: 7px 16px;
             border: none;
-            border-radius: 6px;
+            background: transparent;
+            color: rgba(255,255,255,0.55);
+            border-radius: var(--radius-sm);
             cursor: pointer;
-            font-size: 0.875rem;
+            font-family: var(--font);
+            font-size: 13px;
             font-weight: 500;
-            transition: all 0.15s;
+            transition: var(--transition);
+            white-space: nowrap;
         }
-        .btn-primary { background: var(--accent); color: #fff; }
-        .btn-primary:hover { background: var(--accent-hover); }
-        .btn-danger { background: var(--critical); color: #fff; }
-        .btn-danger:hover { opacity: 0.9; }
-        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-        .btn-secondary:hover { border-color: var(--accent); }
-        .btn-sm { padding: 0.25rem 0.75rem; font-size: 0.8rem; }
-        .container { max-width: 1280px; margin: 0 auto; padding: 1.5rem 2rem; }
+        .nav-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .nav-btn.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+
+        /* ── Buttons ─────────────────────────────────────── */
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-family: var(--font);
+            font-size: 14px;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+        .btn-primary { background: var(--ink); color: #fff; box-shadow: 0 2px 6px rgba(1,37,61,0.15); }
+        .btn-primary:hover { background: var(--accent); }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-sm { padding: 6px 14px; font-size: 13px; }
+        .btn-header-logout {
+            padding: 6px 14px;
+            background: transparent;
+            color: rgba(255,255,255,0.50);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: var(--radius-sm);
+            font-family: var(--font);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .btn-header-logout:hover { border-color: rgba(255,255,255,0.35); color: #fff; }
+
+        /* ── Layout ──────────────────────────────────────── */
+        .container { max-width: 1280px; margin: 0 auto; padding: 28px 32px; }
         .page { display: none; }
         .page.active { display: block; }
 
-        /* Stats cards */
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        /* ── Stat Cards ──────────────────────────────────── */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
         .stat-card {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1.25rem;
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
         }
-        .stat-card .label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-        .stat-card .value { font-size: 1.75rem; font-weight: 700; margin-top: 0.25rem; }
+        .stat-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+        .stat-card .label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+        .stat-card .value { font-size: 32px; font-weight: 700; color: var(--text); margin-top: 6px; font-feature-settings: "tnum"; letter-spacing: -0.02em; }
 
-        /* Table */
+        /* ── Tables ──────────────────────────────────────── */
         .table-wrap {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius);
             overflow: hidden;
+            box-shadow: var(--shadow);
         }
         .table-toolbar {
             display: flex;
             align-items: center;
-            gap: 1rem;
-            padding: 1rem;
-            border-bottom: 1px solid var(--border);
+            gap: 12px;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-light);
             flex-wrap: wrap;
         }
-        table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
-        td { padding: 0.75rem 1rem; font-size: 0.875rem; border-bottom: 1px solid var(--border); }
-        tr:hover td { background: var(--surface2); }
+        .table-toolbar strong { font-size: 15px; font-weight: 600; color: var(--text); }
+        table { width: 100%; border-collapse: collapse; font-feature-settings: "tnum"; }
+        th {
+            text-align: left;
+            padding: 10px 20px;
+            font-size: 11px;
+            color: #fff;
+            background: var(--ink);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            font-weight: 600;
+        }
+        td { padding: 12px 20px; font-size: 14px; border-top: 1px solid var(--border-light); color: var(--text-body); }
+        tr:hover td { background: rgba(23, 162, 184, 0.05); }
+
+        /* ── Badges ──────────────────────────────────────── */
         .badge {
             display: inline-block;
-            padding: 0.15rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
-        .badge-critical { background: rgba(239,68,68,0.15); color: var(--critical); }
-        .badge-high { background: rgba(249,115,22,0.15); color: var(--high); }
-        .badge-medium { background: rgba(234,179,8,0.15); color: var(--medium); }
-        .badge-low { background: rgba(59,130,246,0.15); color: var(--low); }
-        .badge-info { background: rgba(100,116,139,0.15); color: var(--info); }
+        .badge-critical { background: #fef2f2; color: #b91c1c; }
+        .badge-high { background: #fff7ed; color: #c2410c; }
+        .badge-medium { background: #fffbeb; color: #b45309; }
+        .badge-low { background: #f0f9ff; color: #0369a1; }
+        .badge-info { background: #f0f9ff; color: #0284c7; }
 
-        /* Editor */
+        /* ── Editor ──────────────────────────────────────── */
         .editor-container {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius);
             overflow: hidden;
+            box-shadow: var(--shadow);
         }
         .editor-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 1rem;
-            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border-light);
         }
         textarea.yaml-editor {
             width: 100%;
             min-height: 500px;
-            padding: 1rem;
-            background: var(--bg);
-            color: var(--text);
+            padding: 20px;
+            background: var(--surface-alt);
+            color: var(--text-body);
             border: none;
-            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-            font-size: 0.875rem;
-            line-height: 1.6;
+            font-family: var(--mono);
+            font-size: 14px;
+            line-height: 1.65;
             resize: vertical;
             tab-size: 2;
         }
-        textarea.yaml-editor:focus { outline: none; }
+        textarea.yaml-editor:focus { outline: none; box-shadow: inset 0 0 0 2px rgba(23, 162, 184, 0.20); }
 
-        /* Filter inputs */
+        /* ── Filter Inputs ───────────────────────────────── */
         .filter-input, .filter-select {
-            padding: 0.4rem 0.75rem;
+            padding: 8px 14px;
             border: 1px solid var(--border);
-            border-radius: 6px;
-            background: var(--bg);
-            color: var(--text);
-            font-size: 0.85rem;
+            border-radius: var(--radius-sm);
+            background: #fff;
+            color: var(--text-body);
+            font-family: var(--font);
+            font-size: 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .filter-input:focus, .filter-select:focus { outline: none; border-color: var(--accent); }
+        .filter-input:focus, .filter-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(23, 162, 184, 0.12); }
 
-        /* Alert detail modal */
+        /* ── Modal ───────────────────────────────────────── */
         .modal-overlay {
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.6);
+            background: rgba(1, 37, 61, 0.40);
+            backdrop-filter: blur(4px);
             z-index: 200;
             align-items: center;
             justify-content: center;
@@ -173,60 +252,264 @@
         .modal {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
+            border-radius: var(--radius);
+            padding: 32px;
             max-width: 800px;
             width: 95%;
             max-height: 85vh;
             overflow-y: auto;
+            box-shadow: var(--shadow-lg);
         }
-        .modal h3 { margin-bottom: 1rem; }
+        .modal h3 { margin-bottom: 1rem; color: var(--text); font-size: 20px; font-weight: 600; }
         .modal pre {
-            background: var(--bg);
-            padding: 1rem;
-            border-radius: 6px;
+            background: var(--surface-alt);
+            border: 1px solid var(--border-light);
+            padding: 20px;
+            border-radius: var(--radius);
             overflow-x: auto;
-            font-size: 0.8rem;
+            font-family: var(--mono);
+            font-size: 13px;
             line-height: 1.5;
+            color: var(--text-body);
         }
 
-        /* Toast notifications */
-        .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 300; display: flex; flex-direction: column; gap: 0.5rem; }
+        /* ── Toast ───────────────────────────────────────── */
+        .toast-container { position: fixed; top: 16px; right: 16px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
         .toast {
-            padding: 0.75rem 1.25rem;
-            border-radius: 8px;
-            font-size: 0.875rem;
+            padding: 12px 20px;
+            border-radius: var(--radius);
+            font-family: var(--font);
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
             animation: slideIn 0.3s ease;
         }
-        .toast-success { background: rgba(34,197,94,0.15); color: var(--success); border: 1px solid rgba(34,197,94,0.3); }
-        .toast-error { background: rgba(239,68,68,0.15); color: var(--critical); border: 1px solid rgba(239,68,68,0.3); }
+        .toast-success { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+        .toast-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-        /* Loading */
-        .loading { text-align: center; padding: 3rem; color: var(--text-muted); }
+        /* ── Loading ─────────────────────────────────────── */
+        .loading { text-align: center; padding: 48px; color: var(--text-muted); }
         .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Login screen */
-        .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-        .login-box { text-align: center; }
-        .login-box h2 { margin-bottom: 1rem; }
-        .login-box p { color: var(--text-muted); margin-bottom: 2rem; }
+        /* ── Login Screen ────────────────────────────────── */
+        .login-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(160deg, var(--sky) 0%, #b8ddf0 40%, #d6ecf5 100%);
+        }
+        .login-card {
+            width: 100%;
+            max-width: 440px;
+            background: var(--surface);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 8px 40px rgba(1, 37, 61, 0.12), 0 1px 3px rgba(1, 37, 61, 0.06);
+        }
+        .login-accent { height: 4px; background: var(--ink); }
+        .login-content { padding: 52px 44px; text-align: center; }
+        .login-card h2 { font-size: 28px; font-weight: 700; color: var(--ink); margin-bottom: 10px; letter-spacing: -0.02em; }
+        .login-card p { color: var(--text-muted); margin-bottom: 36px; font-size: 15px; line-height: 1.5; }
+        .btn-login {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 14px 32px;
+            background: var(--ink);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius);
+            font-family: var(--font);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 2px 6px rgba(1, 37, 61, 0.15);
+        }
+        .btn-login:hover { background: var(--accent); }
+        .login-footer { margin-top: 36px; font-size: 13px; color: var(--text-muted); }
+        .login-footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
+        .login-footer a:hover { text-decoration: underline; }
+
+        /* ── Login Form ──────────────────────────────────── */
+        .login-form { width: 100%; text-align: left; }
+        .login-field { margin-bottom: 20px; }
+        .login-label { display: block; font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+        .login-input {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-family: var(--font);
+            font-size: 15px;
+            color: var(--text);
+            background: var(--surface);
+            transition: var(--transition);
+            outline: none;
+        }
+        .login-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(23, 162, 184, 0.12); }
+        .login-input::placeholder { color: var(--text-muted); }
+        .login-error {
+            display: none;
+            margin-bottom: 16px;
+            padding: 10px 14px;
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            text-align: center;
+        }
+        .login-error.visible { display: block; }
+        .login-links { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+        .login-link {
+            font-size: 13px;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            font-family: var(--font);
+        }
+        .login-link:hover { text-decoration: underline; }
+        .login-step { display: none; }
+        .login-step.active { display: block; }
+        .login-note { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; text-align: center; }
+        .login-input-mfa {
+            text-align: center;
+            font-family: var(--mono);
+            font-size: 24px;
+            letter-spacing: 8px;
+            padding: 14px;
+        }
+        .btn-login:disabled { opacity: 0.7; cursor: not-allowed; }
+
+        /* ── Responsive ──────────────────────────────────── */
+        @media (max-width: 768px) {
+            .header { padding: 0 16px; flex-wrap: wrap; height: auto; padding-top: 12px; padding-bottom: 12px; gap: 8px; }
+            .header .nav { overflow-x: auto; width: 100%; order: 3; }
+            .container { padding: 16px; }
+            .stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+            .login-content { padding: 36px 28px; }
+        }
     </style>
 </head>
 <body>
 
 <div id="login-screen" class="login-screen">
-    <div class="login-box">
-        <h2>${project_name} Dashboard</h2>
-        <p>Security detection rules management &amp; alert history</p>
-        <button class="btn btn-primary" onclick="login()" style="padding: 0.75rem 2rem; font-size: 1rem;">Sign In</button>
+    <div class="login-card">
+        <div class="login-accent"></div>
+        <div class="login-content">
+            <img src="/logo.png" alt="${project_name}" style="height:48px; width:auto; margin-bottom:20px;">
+            <h2>Security Dashboard</h2>
+            <p>Detection rules, alert monitoring &amp; security management</p>
+
+            <div id="login-error" class="login-error"></div>
+
+            <!-- Step 1: Credentials -->
+            <div id="login-step-credentials" class="login-step active">
+                <form class="login-form" onsubmit="handleLogin(event)">
+                    <div class="login-field">
+                        <label class="login-label" for="login-email">Email</label>
+                        <input class="login-input" id="login-email" type="email" placeholder="you@company.com" required autocomplete="username">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="login-password">Password</label>
+                        <input class="login-input" id="login-password" type="password" placeholder="Enter your password" required autocomplete="current-password">
+                    </div>
+                    <div class="login-links">
+                        <button type="button" class="login-link" onclick="showForgotPassword()">Forgot password?</button>
+                    </div>
+                    <button type="submit" class="btn-login" id="login-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:10px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        Sign In
+                    </button>
+                </form>
+            </div>
+
+            <!-- Step 2: New Password Required -->
+            <div id="login-step-newpassword" class="login-step">
+                <form class="login-form" onsubmit="handleNewPassword(event)">
+                    <p class="login-note">Your administrator requires you to set a new password.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="new-password">New Password</label>
+                        <input class="login-input" id="new-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="confirm-password">Confirm Password</label>
+                        <input class="login-input" id="confirm-password" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn-login" id="newpass-btn">Set Password</button>
+                </form>
+            </div>
+
+            <!-- Step 3: MFA Code -->
+            <div id="login-step-mfa" class="login-step">
+                <form class="login-form" onsubmit="handleMfa(event)">
+                    <p class="login-note">Enter the 6-digit code from your authenticator app.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="mfa-code">Verification Code</label>
+                        <input class="login-input login-input-mfa" id="mfa-code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required autocomplete="one-time-code">
+                    </div>
+                    <button type="submit" class="btn-login" id="mfa-btn">Verify</button>
+                </form>
+            </div>
+
+            <!-- Step 4: Forgot Password -->
+            <div id="login-step-forgot" class="login-step">
+                <form class="login-form" onsubmit="handleForgotPassword(event)">
+                    <p class="login-note">Enter your email and we'll send a verification code to reset your password.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="forgot-email">Email</label>
+                        <input class="login-input" id="forgot-email" type="email" placeholder="you@company.com" required autocomplete="username">
+                    </div>
+                    <button type="submit" class="btn-login" id="forgot-btn">Send Code</button>
+                    <div style="margin-top:16px; text-align:center;">
+                        <button type="button" class="login-link" onclick="showLoginStep('credentials')">Back to sign in</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Step 5: Reset Password -->
+            <div id="login-step-reset" class="login-step">
+                <form class="login-form" onsubmit="handleResetPassword(event)">
+                    <p class="login-note">Enter the verification code sent to your email and choose a new password.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="reset-code">Verification Code</label>
+                        <input class="login-input" id="reset-code" type="text" inputmode="numeric" maxlength="6" placeholder="Enter code" required autocomplete="one-time-code">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="reset-password">New Password</label>
+                        <input class="login-input" id="reset-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="reset-confirm">Confirm Password</label>
+                        <input class="login-input" id="reset-confirm" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn-login" id="reset-btn">Reset Password</button>
+                    <div style="margin-top:16px; text-align:center;">
+                        <button type="button" class="login-link" onclick="showLoginStep('credentials')">Back to sign in</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="login-footer">Powered by <a href="https://adan.cloud" target="_blank">adan.cloud</a></div>
+        </div>
     </div>
 </div>
 
 <div id="app" style="display:none;">
     <div class="header">
-        <h1>${project_name} Dashboard</h1>
+        <div class="header-brand">
+            <img src="/logo.png" alt="${project_name}" class="header-logo">
+            <span class="header-title">${project_name}</span>
+        </div>
         <div class="nav">
             <button class="nav-btn active" data-page="overview" onclick="showPage('overview')">Overview</button>
             <button class="nav-btn" data-page="rules" onclick="showPage('rules')">Rules</button>
@@ -235,8 +518,8 @@
             <button class="nav-btn" data-page="alerts" onclick="showPage('alerts')">Alerts</button>
         </div>
         <div class="user-info">
-            <span id="user-email" style="font-size:0.85rem; color:var(--text-muted);"></span>
-            <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
+            <span id="user-email" class="user-email"></span>
+            <button class="btn-header-logout" onclick="logout()">Sign Out</button>
         </div>
     </div>
 
@@ -441,95 +724,271 @@ const CONFIG = {
     region: '${aws_region}',
 };
 
-const COGNITO_BASE = 'https://' + CONFIG.cognitoDomain + '.auth.' + CONFIG.region + '.amazoncognito.com';
-const REDIRECT_URI = window.location.origin + '/';
+const COGNITO_IDP = 'https://cognito-idp.' + CONFIG.region + '.amazonaws.com/';
 
 // -------------------------------------------------------
-// Auth (Cognito Hosted UI + Authorization Code + PKCE)
+// Auth (Direct Cognito API — USER_PASSWORD_AUTH)
 // -------------------------------------------------------
 let accessToken = null;
 let idToken = null;
 let currentRuleKey = null;
 let alertsNextToken = null;
+let authSession = null;   // Cognito challenge session token
+let authUsername = null;   // Username carried across challenge steps
 
-function generateCodeVerifier() {
-    const arr = new Uint8Array(32);
-    crypto.getRandomValues(arr);
-    return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-
-async function generateCodeChallenge(verifier) {
-    const data = new TextEncoder().encode(verifier);
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-
-async function login() {
-    const verifier = generateCodeVerifier();
-    sessionStorage.setItem('pkce_verifier', verifier);
-    const challenge = await generateCodeChallenge(verifier);
-
-    const params = new URLSearchParams({
-        response_type: 'code',
-        client_id: CONFIG.cognitoClientId,
-        redirect_uri: REDIRECT_URI,
-        scope: 'openid email profile',
-        code_challenge_method: 'S256',
-        code_challenge: challenge,
+// -- Cognito API helper --
+async function cognitoRequest(action, body) {
+    const resp = await fetch(COGNITO_IDP, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-amz-json-1.1',
+            'X-Amz-Target': 'AWSCognitoIdentityProviderService.' + action,
+        },
+        body: JSON.stringify(body),
     });
-
-    window.location.href = COGNITO_BASE + '/oauth2/authorize?' + params.toString();
+    const data = await resp.json();
+    if (!resp.ok) {
+        const msg = data.message || data.__type || 'Authentication failed';
+        throw new Error(msg);
+    }
+    return data;
 }
 
-async function handleCallback() {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (!code) return false;
+// -- Login step management --
+function showLoginStep(step) {
+    document.querySelectorAll('.login-step').forEach(s => s.classList.remove('active'));
+    document.getElementById('login-step-' + step).classList.add('active');
+    hideLoginError();
+}
 
-    const verifier = sessionStorage.getItem('pkce_verifier');
-    if (!verifier) { toast('Auth error: missing PKCE verifier', 'error'); return false; }
+function showLoginError(msg) {
+    const el = document.getElementById('login-error');
+    el.textContent = msg;
+    el.classList.add('visible');
+}
+
+function hideLoginError() {
+    document.getElementById('login-error').classList.remove('visible');
+}
+
+function setLoginLoading(btnId, loading) {
+    const btn = document.getElementById(btnId);
+    btn.disabled = loading;
+}
+
+// -- Login flow --
+async function handleLogin(e) {
+    e.preventDefault();
+    hideLoginError();
+    setLoginLoading('login-btn', true);
+
+    authUsername = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
 
     try {
-        const resp = await fetch(COGNITO_BASE + '/oauth2/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                grant_type: 'authorization_code',
-                client_id: CONFIG.cognitoClientId,
-                code: code,
-                redirect_uri: REDIRECT_URI,
-                code_verifier: verifier,
-            }),
+        const result = await cognitoRequest('InitiateAuth', {
+            AuthFlow: 'USER_PASSWORD_AUTH',
+            ClientId: CONFIG.cognitoClientId,
+            AuthParameters: {
+                USERNAME: authUsername,
+                PASSWORD: password,
+            },
         });
 
-        if (!resp.ok) throw new Error('Token exchange failed');
-        const tokens = await resp.json();
-
-        accessToken = tokens.access_token;
-        idToken = tokens.id_token;
-
-        // Store tokens (short-lived, secure enough for session)
-        sessionStorage.setItem('access_token', accessToken);
-        sessionStorage.setItem('id_token', idToken);
-        sessionStorage.setItem('refresh_token', tokens.refresh_token || '');
-        sessionStorage.removeItem('pkce_verifier');
-
-        // Clean URL
-        window.history.replaceState({}, '', '/');
-        return true;
-    } catch (e) {
-        toast('Authentication failed: ' + e.message, 'error');
-        return false;
+        if (result.AuthenticationResult) {
+            completeAuth(result.AuthenticationResult);
+        } else if (result.ChallengeName === 'NEW_PASSWORD_REQUIRED') {
+            authSession = result.Session;
+            showLoginStep('newpassword');
+        } else if (result.ChallengeName === 'SOFTWARE_TOKEN_MFA') {
+            authSession = result.Session;
+            showLoginStep('mfa');
+        } else {
+            showLoginError('Unexpected authentication challenge.');
+        }
+    } catch (err) {
+        showLoginError(err.message);
+    } finally {
+        setLoginLoading('login-btn', false);
     }
 }
 
+// -- New password challenge --
+async function handleNewPassword(e) {
+    e.preventDefault();
+    hideLoginError();
+
+    const newPass = document.getElementById('new-password').value;
+    const confirmPass = document.getElementById('confirm-password').value;
+    if (newPass !== confirmPass) {
+        showLoginError('Passwords do not match.');
+        return;
+    }
+
+    setLoginLoading('newpass-btn', true);
+    try {
+        const result = await cognitoRequest('RespondToAuthChallenge', {
+            ChallengeName: 'NEW_PASSWORD_REQUIRED',
+            ClientId: CONFIG.cognitoClientId,
+            Session: authSession,
+            ChallengeResponses: {
+                USERNAME: authUsername,
+                NEW_PASSWORD: newPass,
+            },
+        });
+
+        if (result.AuthenticationResult) {
+            completeAuth(result.AuthenticationResult);
+        } else if (result.ChallengeName === 'SOFTWARE_TOKEN_MFA') {
+            authSession = result.Session;
+            showLoginStep('mfa');
+        } else {
+            showLoginError('Unexpected challenge after password change.');
+        }
+    } catch (err) {
+        showLoginError(err.message);
+    } finally {
+        setLoginLoading('newpass-btn', false);
+    }
+}
+
+// -- MFA challenge --
+async function handleMfa(e) {
+    e.preventDefault();
+    hideLoginError();
+    setLoginLoading('mfa-btn', true);
+
+    const code = document.getElementById('mfa-code').value.trim();
+
+    try {
+        const result = await cognitoRequest('RespondToAuthChallenge', {
+            ChallengeName: 'SOFTWARE_TOKEN_MFA',
+            ClientId: CONFIG.cognitoClientId,
+            Session: authSession,
+            ChallengeResponses: {
+                USERNAME: authUsername,
+                SOFTWARE_TOKEN_MFA_CODE: code,
+            },
+        });
+
+        if (result.AuthenticationResult) {
+            completeAuth(result.AuthenticationResult);
+        } else {
+            showLoginError('Unexpected response after MFA verification.');
+        }
+    } catch (err) {
+        showLoginError(err.message);
+        document.getElementById('mfa-code').value = '';
+    } finally {
+        setLoginLoading('mfa-btn', false);
+    }
+}
+
+// -- Forgot / Reset password --
+function showForgotPassword() {
+    document.getElementById('forgot-email').value = document.getElementById('login-email').value;
+    showLoginStep('forgot');
+}
+
+async function handleForgotPassword(e) {
+    e.preventDefault();
+    hideLoginError();
+    setLoginLoading('forgot-btn', true);
+
+    const email = document.getElementById('forgot-email').value.trim();
+
+    try {
+        await cognitoRequest('ForgotPassword', {
+            ClientId: CONFIG.cognitoClientId,
+            Username: email,
+        });
+        authUsername = email;
+        showLoginStep('reset');
+    } catch (err) {
+        showLoginError(err.message);
+    } finally {
+        setLoginLoading('forgot-btn', false);
+    }
+}
+
+async function handleResetPassword(e) {
+    e.preventDefault();
+    hideLoginError();
+
+    const code = document.getElementById('reset-code').value.trim();
+    const newPass = document.getElementById('reset-password').value;
+    const confirmPass = document.getElementById('reset-confirm').value;
+    if (newPass !== confirmPass) {
+        showLoginError('Passwords do not match.');
+        return;
+    }
+
+    setLoginLoading('reset-btn', true);
+    try {
+        await cognitoRequest('ConfirmForgotPassword', {
+            ClientId: CONFIG.cognitoClientId,
+            Username: authUsername,
+            ConfirmationCode: code,
+            Password: newPass,
+        });
+        toast('Password reset successfully. Please sign in.', 'success');
+        showLoginStep('credentials');
+        document.getElementById('login-password').value = '';
+    } catch (err) {
+        showLoginError(err.message);
+    } finally {
+        setLoginLoading('reset-btn', false);
+    }
+}
+
+// -- Complete auth (store tokens, show app) --
+function completeAuth(authResult) {
+    accessToken = authResult.AccessToken;
+    idToken = authResult.IdToken;
+    sessionStorage.setItem('access_token', accessToken);
+    sessionStorage.setItem('id_token', idToken);
+    if (authResult.RefreshToken) {
+        sessionStorage.setItem('refresh_token', authResult.RefreshToken);
+    }
+    authSession = null;
+
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = '';
+    document.getElementById('user-email').textContent = getUserEmail();
+    loadOverview();
+}
+
+// -- Token refresh --
+async function refreshTokens() {
+    const refreshToken = sessionStorage.getItem('refresh_token');
+    if (!refreshToken) return false;
+
+    try {
+        const result = await cognitoRequest('InitiateAuth', {
+            AuthFlow: 'REFRESH_TOKEN_AUTH',
+            ClientId: CONFIG.cognitoClientId,
+            AuthParameters: { REFRESH_TOKEN: refreshToken },
+        });
+        if (result.AuthenticationResult) {
+            accessToken = result.AuthenticationResult.AccessToken;
+            idToken = result.AuthenticationResult.IdToken;
+            sessionStorage.setItem('access_token', accessToken);
+            sessionStorage.setItem('id_token', idToken);
+            return true;
+        }
+    } catch (_) { /* refresh failed */ }
+    return false;
+}
+
+// -- Logout (revoke tokens server-side) --
 function logout() {
+    if (accessToken) {
+        cognitoRequest('GlobalSignOut', { AccessToken: accessToken }).catch(() => {});
+    }
     sessionStorage.clear();
-    const params = new URLSearchParams({
-        client_id: CONFIG.cognitoClientId,
-        logout_uri: REDIRECT_URI,
-    });
-    window.location.href = COGNITO_BASE + '/logout?' + params.toString();
+    accessToken = null;
+    idToken = null;
+    window.location.reload();
 }
 
 function isAuthenticated() {
@@ -547,10 +1006,10 @@ function getUserEmail() {
 }
 
 // -------------------------------------------------------
-// API Helpers
+// API Helpers (with automatic token refresh on 401)
 // -------------------------------------------------------
 async function api(path, options = {}) {
-    const resp = await fetch(CONFIG.apiEndpoint + path, {
+    const makeRequest = () => fetch(CONFIG.apiEndpoint + path, {
         ...options,
         headers: {
             'Authorization': 'Bearer ' + accessToken,
@@ -559,10 +1018,19 @@ async function api(path, options = {}) {
         },
     });
 
+    let resp = await makeRequest();
+
+    // Attempt transparent token refresh on 401
     if (resp.status === 401) {
-        toast('Session expired. Please login again.', 'error');
-        setTimeout(login, 1500);
-        throw new Error('Unauthorized');
+        const refreshed = await refreshTokens();
+        if (refreshed) {
+            resp = await makeRequest();
+        }
+        if (resp.status === 401) {
+            toast('Session expired. Please sign in again.', 'error');
+            setTimeout(() => { sessionStorage.clear(); window.location.reload(); }, 1500);
+            throw new Error('Unauthorized');
+        }
     }
 
     const data = await resp.json();
@@ -1123,13 +1591,7 @@ function formatTime(ts) {
 // -------------------------------------------------------
 // Init
 // -------------------------------------------------------
-(async function init() {
-    // Check for callback code
-    if (window.location.search.includes('code=')) {
-        const ok = await handleCallback();
-        if (!ok) return;
-    }
-
+(function init() {
     if (isAuthenticated()) {
         document.getElementById('login-screen').style.display = 'none';
         document.getElementById('app').style.display = '';

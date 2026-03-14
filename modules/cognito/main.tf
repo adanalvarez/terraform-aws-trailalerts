@@ -111,13 +111,98 @@ resource "aws_cognito_user_pool_client" "dashboard_spa" {
 
   explicit_auth_flows = [
     "ALLOW_REFRESH_TOKEN_AUTH",
-    "ALLOW_USER_SRP_AUTH"
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_USER_PASSWORD_AUTH"
   ]
 
   # Callback/logout URLs are managed by null_resource after CloudFront creation
   lifecycle {
     ignore_changes = [callback_urls, logout_urls]
   }
+}
+
+# Cognito hosted UI branding
+resource "aws_cognito_user_pool_ui_customization" "dashboard" {
+  user_pool_id = aws_cognito_user_pool.dashboard.id
+  client_id    = aws_cognito_user_pool_client.dashboard_spa.id
+
+  css = <<-CSS
+    .banner-customizable {
+      background-color: #8ECAE6;
+      padding: 24px 0;
+    }
+
+    .logo-customizable {
+      max-width: 200px;
+    }
+
+    .background-customizable {
+      background-color: #8ECAE6;
+    }
+
+    .submitButton-customizable {
+      background-color: #01253D;
+      border-color: #01253D;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 12px 24px;
+    }
+
+    .submitButton-customizable:hover {
+      background-color: #17A2B8;
+      border-color: #17A2B8;
+    }
+
+    .idpButton-customizable {
+      background-color: #01253D;
+      border-color: #01253D;
+      border-radius: 10px;
+      font-size: 15px;
+    }
+
+    .idpButton-customizable:hover {
+      background-color: #17A2B8;
+      border-color: #17A2B8;
+    }
+
+    .textDescription-customizable {
+      color: #01253D;
+      font-size: 15px;
+    }
+
+    .label-customizable {
+      color: #2B2D31;
+      font-weight: 500;
+    }
+
+    .inputField-customizable {
+      border-color: #D1D5DB;
+      border-radius: 6px;
+      color: #2B2D31;
+      padding: 10px 14px;
+    }
+
+    .inputField-customizable:focus {
+      border-color: #17A2B8;
+    }
+
+    .redirect-customizable {
+      color: #17A2B8;
+    }
+
+    .legalText-customizable {
+      color: #6B7280;
+    }
+
+    .errorMessage-customizable {
+      color: #dc2626;
+    }
+  CSS
+
+  image_file = filebase64("${path.module}/../../images/TrailAlerts.png")
+
+  depends_on = [aws_cognito_user_pool_domain.dashboard]
 }
 
 # Create initial admin user(s)
