@@ -37,7 +37,7 @@ resource "aws_s3_object" "logo" {
   etag         = filemd5("${path.module}/../../images/TrailAlerts.png")
 }
 
-# Upload index.html with rendered config
+# Upload index.html with rendered config (templatefile injects runtime values)
 resource "aws_s3_object" "index_html" {
   bucket = aws_s3_bucket.dashboard_site.id
   key    = "index.html"
@@ -56,6 +56,38 @@ resource "aws_s3_object" "index_html" {
     aws_region           = data.aws_region.current.id
     project_name         = var.project
   }))
+}
+
+# -------------------------------------------------------
+# Static site assets (CSS, JS) — uploaded automatically
+# -------------------------------------------------------
+
+locals {
+  mime_types = {
+    css  = "text/css"
+    js   = "application/javascript"
+    json = "application/json"
+    png  = "image/png"
+    svg  = "image/svg+xml"
+    ico  = "image/x-icon"
+    html = "text/html"
+  }
+
+  # All files under site/ except index.html (which uses templatefile above)
+  site_static_files = setsubtract(
+    fileset("${path.module}/site", "**"),
+    ["index.html"]
+  )
+}
+
+resource "aws_s3_object" "site_static" {
+  for_each = local.site_static_files
+
+  bucket       = aws_s3_bucket.dashboard_site.id
+  key          = each.value
+  source       = "${path.module}/site/${each.value}"
+  content_type = lookup(local.mime_types, element(split(".", each.value), length(split(".", each.value)) - 1), "application/octet-stream")
+  etag         = filemd5("${path.module}/site/${each.value}")
 }
 
 # -------------------------------------------------------
