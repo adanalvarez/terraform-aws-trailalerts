@@ -236,6 +236,14 @@
             transition: border-color 0.2s, box-shadow 0.2s;
         }
         .filter-input:focus, .filter-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(23, 162, 184, 0.12); }
+        .filter-input { min-width: 180px; }
+
+        /* ── Sortable Headers ─────────────────────────────── */
+        th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 28px; }
+        th.sortable:hover { background: var(--deep-cyan); }
+        th.sortable::after { content: '⇅'; position: absolute; right: 8px; opacity: 0.4; font-size: 10px; }
+        th.sortable.asc::after { content: '▲'; opacity: 0.9; }
+        th.sortable.desc::after { content: '▼'; opacity: 0.9; }
 
         /* ── Modal ───────────────────────────────────────── */
         .modal-overlay {
@@ -548,11 +556,18 @@
                 <div class="table-wrap">
                     <div class="table-toolbar">
                         <strong>Sigma Rules</strong>
+                        <input type="text" class="filter-input" id="rules-search" placeholder="Search rules..." oninput="renderRulesTable()" />
                         <div style="flex:1;"></div>
                         <button class="btn btn-primary btn-sm" onclick="newRule()">+ New Rule</button>
                     </div>
                     <table>
-                        <thead><tr><th>Title</th><th>Severity</th><th>Status</th><th>Last Modified</th><th>Actions</th></tr></thead>
+                        <thead><tr>
+                            <th class="sortable" data-sort="title" onclick="sortRules(this,'title')">Title</th>
+                            <th class="sortable" data-sort="level" onclick="sortRules(this,'level')">Severity</th>
+                            <th class="sortable" data-sort="status" onclick="sortRules(this,'status')">Status</th>
+                            <th class="sortable" data-sort="lastModified" onclick="sortRules(this,'lastModified')">Last Modified</th>
+                            <th>Actions</th>
+                        </tr></thead>
                         <tbody id="rules-body"></tbody>
                     </table>
                 </div>
@@ -579,7 +594,7 @@
             <div class="table-wrap">
                 <div class="table-toolbar">
                     <strong>Alert History</strong>
-                    <input type="text" class="filter-input" id="alert-rule-filter" placeholder="Filter by rule..." />
+                    <input type="text" class="filter-input" id="alert-rule-filter" placeholder="Search alerts..." oninput="renderAlertsTable()" />
                     <select class="filter-select" id="alert-severity-filter">
                         <option value="">All severities</option>
                         <option value="critical">Critical</option>
@@ -599,7 +614,15 @@
                     <button class="btn btn-secondary btn-sm" onclick="loadAlerts()">Search</button>
                 </div>
                 <table>
-                    <thead><tr><th>Time</th><th>Rule</th><th>Severity</th><th>Event</th><th>Actor</th><th>Source IP</th><th>Actions</th></tr></thead>
+                    <thead><tr>
+                        <th class="sortable" data-sort="timestamp" onclick="sortAlerts(this,'timestamp')">Time</th>
+                        <th class="sortable" data-sort="sigmaRuleTitle" onclick="sortAlerts(this,'sigmaRuleTitle')">Rule</th>
+                        <th class="sortable" data-sort="severity" onclick="sortAlerts(this,'severity')">Severity</th>
+                        <th class="sortable" data-sort="eventName" onclick="sortAlerts(this,'eventName')">Event</th>
+                        <th class="sortable" data-sort="actor" onclick="sortAlerts(this,'actor')">Actor</th>
+                        <th class="sortable" data-sort="sourceIp" onclick="sortAlerts(this,'sourceIp')">Source IP</th>
+                        <th>Actions</th>
+                    </tr></thead>
                     <tbody id="alerts-body"></tbody>
                 </table>
                 <div id="alerts-pagination" style="padding:1rem; text-align:center; display:none;">
@@ -1096,8 +1119,12 @@ async function loadOverview() {
 }
 
 // -------------------------------------------------------
-// Rules
+// Rules (client-side search + sort)
 // -------------------------------------------------------
+let rulesCache = [];
+let rulesSortField = 'title';
+let rulesSortDir = 'asc';
+
 async function loadRules() {
     document.getElementById('rules-list-view').style.display = '';
     document.getElementById('rules-edit-view').style.display = 'none';
@@ -1107,27 +1134,68 @@ async function loadRules() {
 
     try {
         const data = await api('/api/rules');
-        tbody.innerHTML = '';
-
-        if (data.rules.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:2rem;">No rules found. Click "+ New Rule" to create one.</td></tr>';
-            return;
-        }
-
-        data.rules.sort((a, b) => a.title.localeCompare(b.title));
-        data.rules.forEach(r => {
-            const tr = document.createElement('tr');
-            tr.innerHTML =
-                '<td>' + esc(r.title) + '</td>' +
-                '<td><span class="badge badge-' + (r.level||'info') + '">' + esc(r.level||'?') + '</span></td>' +
-                '<td>' + esc(r.status||'') + '</td>' +
-                '<td>' + new Date(r.lastModified).toLocaleString() + '</td>' +
-                '<td><button class="btn btn-secondary btn-sm" onclick="editRule(\'' + escAttr(r.key) + '\')">Edit</button></td>';
-            tbody.appendChild(tr);
-        });
+        rulesCache = data.rules || [];
+        renderRulesTable();
     } catch (e) {
         tbody.innerHTML = '<tr><td colspan="5" style="color:var(--critical);">Failed to load rules: ' + esc(e.message) + '</td></tr>';
     }
+}
+
+function sortRules(thEl, field) {
+    if (rulesSortField === field) {
+        rulesSortDir = rulesSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        rulesSortField = field;
+        rulesSortDir = 'asc';
+    }
+    // Update header indicators
+    thEl.closest('thead').querySelectorAll('th.sortable').forEach(h => h.classList.remove('asc','desc'));
+    thEl.classList.add(rulesSortDir);
+    renderRulesTable();
+}
+
+function renderRulesTable() {
+    const tbody = document.getElementById('rules-body');
+    const search = (document.getElementById('rules-search').value || '').toLowerCase();
+
+    let filtered = rulesCache;
+    if (search) {
+        filtered = rulesCache.filter(r =>
+            (r.title || '').toLowerCase().includes(search) ||
+            (r.level || '').toLowerCase().includes(search) ||
+            (r.status || '').toLowerCase().includes(search)
+        );
+    }
+
+    filtered.sort((a, b) => {
+        let va = a[rulesSortField] || '';
+        let vb = b[rulesSortField] || '';
+        if (rulesSortField === 'lastModified') {
+            va = new Date(va).getTime() || 0;
+            vb = new Date(vb).getTime() || 0;
+            return rulesSortDir === 'asc' ? va - vb : vb - va;
+        }
+        const cmp = String(va).localeCompare(String(vb));
+        return rulesSortDir === 'asc' ? cmp : -cmp;
+    });
+
+    tbody.innerHTML = '';
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:2rem;">' +
+            (rulesCache.length === 0 ? 'No rules found. Click "+ New Rule" to create one.' : 'No rules match your search.') + '</td></tr>';
+        return;
+    }
+
+    filtered.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td>' + esc(r.title) + '</td>' +
+            '<td><span class="badge badge-' + (r.level||'info') + '">' + esc(r.level||'?') + '</span></td>' +
+            '<td>' + esc(r.status||'') + '</td>' +
+            '<td>' + new Date(r.lastModified).toLocaleString() + '</td>' +
+            '<td><button class="btn btn-secondary btn-sm" onclick="editRule(\'' + escAttr(r.key) + '\')">Edit</button></td>';
+        tbody.appendChild(tr);
+    });
 }
 
 async function editRule(key) {
@@ -1207,54 +1275,109 @@ function backToRulesList() {
 }
 
 // -------------------------------------------------------
-// Alerts
+// Alerts (client-side sort on loaded data + server-side time/severity filter)
 // -------------------------------------------------------
+let alertsCache = [];
+let alertsSortField = 'timestamp';
+let alertsSortDir = 'desc';
+
+const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
 async function loadAlerts(append = false) {
-    const rule = document.getElementById('alert-rule-filter').value;
+    const ruleSearch = document.getElementById('alert-rule-filter').value;
     const severity = document.getElementById('alert-severity-filter').value;
     const hours = document.getElementById('alert-hours-filter').value;
 
-    if (!append) alertsNextToken = null;
+    if (!append) { alertsNextToken = null; alertsCache = []; }
 
     const tbody = document.getElementById('alerts-body');
     if (!append) tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>';
 
     try {
         let url = '/api/alerts?hours=' + hours + '&limit=50';
-        if (rule) url += '&rule=' + encodeURIComponent(rule);
         if (severity) url += '&severity=' + encodeURIComponent(severity);
         if (alertsNextToken) url += '&nextToken=' + encodeURIComponent(alertsNextToken);
 
         const data = await api(url);
 
-        if (!append) tbody.innerHTML = '';
-
-        if (data.alerts.length === 0 && !append) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No alerts found for the selected filters</td></tr>';
-            document.getElementById('alerts-pagination').style.display = 'none';
-            return;
-        }
-
-        data.alerts.forEach(a => {
-            const tr = document.createElement('tr');
-            tr.innerHTML =
-                '<td style="white-space:nowrap;">' + esc(formatTime(a.timestamp)) + '</td>' +
-                '<td>' + esc(a.sigmaRuleTitle || '') + '</td>' +
-                '<td><span class="badge badge-' + (a.severity||'info') + '">' + esc(a.severity||'?') + '</span></td>' +
-                '<td>' + esc(a.eventName || '') + '</td>' +
-                '<td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.actor || '') + '</td>' +
-                '<td>' + esc(a.sourceIp || '') + '</td>' +
-                '<td><button class="btn btn-secondary btn-sm" onclick="viewAlertDetail(\'' + escAttr(a.pk) + '\',\'' + escAttr(a.sk) + '\')">Detail</button></td>';
-            tbody.appendChild(tr);
-        });
-
+        alertsCache = append ? alertsCache.concat(data.alerts) : data.alerts;
         alertsNextToken = data.nextToken || null;
-        document.getElementById('alerts-pagination').style.display = alertsNextToken ? '' : 'none';
+
+        // Hide Load More when no nextToken, or when we got fewer items than requested
+        const hasMore = !!alertsNextToken && data.alerts.length > 0;
+        document.getElementById('alerts-pagination').style.display = hasMore ? '' : 'none';
+
+        renderAlertsTable();
 
     } catch (e) {
         if (!append) tbody.innerHTML = '<tr><td colspan="7" style="color:var(--critical);">Failed to load alerts: ' + esc(e.message) + '</td></tr>';
         else toast('Failed to load more alerts: ' + e.message, 'error');
     }
+}
+
+function sortAlerts(thEl, field) {
+    if (alertsSortField === field) {
+        alertsSortDir = alertsSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        alertsSortField = field;
+        alertsSortDir = field === 'timestamp' ? 'desc' : 'asc';
+    }
+    thEl.closest('thead').querySelectorAll('th.sortable').forEach(h => h.classList.remove('asc','desc'));
+    thEl.classList.add(alertsSortDir);
+    renderAlertsTable();
+}
+
+function renderAlertsTable() {
+    const tbody = document.getElementById('alerts-body');
+    const ruleSearch = (document.getElementById('alert-rule-filter').value || '').toLowerCase();
+
+    // Client-side text filter on rule name — partial match
+    let filtered = alertsCache;
+    if (ruleSearch) {
+        filtered = alertsCache.filter(a =>
+            (a.sigmaRuleTitle || '').toLowerCase().includes(ruleSearch) ||
+            (a.eventName || '').toLowerCase().includes(ruleSearch) ||
+            (a.actor || '').toLowerCase().includes(ruleSearch) ||
+            (a.sourceIp || '').toLowerCase().includes(ruleSearch)
+        );
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+        let va = a[alertsSortField] || '';
+        let vb = b[alertsSortField] || '';
+        if (alertsSortField === 'timestamp') {
+            va = new Date(va).getTime() || 0;
+            vb = new Date(vb).getTime() || 0;
+            return alertsSortDir === 'asc' ? va - vb : vb - va;
+        }
+        if (alertsSortField === 'severity') {
+            va = severityOrder[va] ?? 5;
+            vb = severityOrder[vb] ?? 5;
+            return alertsSortDir === 'asc' ? va - vb : vb - va;
+        }
+        const cmp = String(va).localeCompare(String(vb));
+        return alertsSortDir === 'asc' ? cmp : -cmp;
+    });
+
+    tbody.innerHTML = '';
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No alerts found for the selected filters</td></tr>';
+        return;
+    }
+
+    filtered.forEach(a => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td style="white-space:nowrap;">' + esc(formatTime(a.timestamp)) + '</td>' +
+            '<td>' + esc(a.sigmaRuleTitle || '') + '</td>' +
+            '<td><span class="badge badge-' + (a.severity||'info') + '">' + esc(a.severity||'?') + '</span></td>' +
+            '<td>' + esc(a.eventName || '') + '</td>' +
+            '<td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.actor || '') + '</td>' +
+            '<td>' + esc(a.sourceIp || '') + '</td>' +
+            '<td><button class="btn btn-secondary btn-sm" onclick="viewAlertDetail(\'' + escAttr(a.pk) + '\',\'' + escAttr(a.sk) + '\')">Detail</button></td>';
+        tbody.appendChild(tr);
+    });
 }
 
 function loadMoreAlerts() {
@@ -1324,22 +1447,25 @@ async function loadPostprocessing() {
         filesBody.innerHTML = '';
 
         correlationRules.forEach(rule => {
+            const lookFor = Array.isArray(rule.lookFor) ? rule.lookFor : (rule.lookFor ? [rule.lookFor] : []);
+            const severity = rule.adjustSeverity || rule.severity_adjustment || '-';
             corrBody.innerHTML += '<tr>' +
                 '<td>' + esc(rule.sigmaRuleTitle || '') + '</td>' +
-                '<td>' + esc((rule.lookFor || []).join(', ')) + '</td>' +
+                '<td>' + esc(lookFor.join(', ')) + '</td>' +
                 '<td>' + (rule.windowMinutes || '') + '</td>' +
-                '<td>' + esc(rule.adjustSeverity || '-') + '</td>' +
+                '<td>' + esc(severity) + '</td>' +
                 '<td>' + esc(rule._file || '') + '</td>' +
                 '<td><button class="btn btn-secondary btn-sm" onclick="editPPFile(\'' + escAttr(rule._file || '') + '\')">Edit</button></td>' +
                 '</tr>';
         });
 
         thresholdRules.forEach(rule => {
+            const severity = rule.adjustSeverity || rule.severity_adjustment || '-';
             thrBody.innerHTML += '<tr>' +
                 '<td>' + esc(rule.sigmaRuleTitle || '') + '</td>' +
                 '<td>' + (rule.thresholdCount || '') + '</td>' +
                 '<td>' + (rule.windowMinutes || '') + '</td>' +
-                '<td>' + esc(rule.adjustSeverity || '-') + '</td>' +
+                '<td>' + esc(severity) + '</td>' +
                 '<td>' + esc(rule._file || '') + '</td>' +
                 '<td><button class="btn btn-secondary btn-sm" onclick="editPPFile(\'' + escAttr(rule._file || '') + '\')">Edit</button></td>' +
                 '</tr>';
