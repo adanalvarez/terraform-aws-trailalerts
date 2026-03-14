@@ -1,14 +1,8 @@
-resource "null_resource" "create_zip_every_time" {
-  triggers = {
-    always_run = timestamp()
-  }
-}
-
 data "archive_file" "trailalerts_cloudtrail_analyzer_zip" {
-  depends_on  = [null_resource.create_zip_every_time]
   type        = "zip"
   source_dir  = "${local.rel_path_root}/lambda_code/cloudtrail_analyzer"
   output_path = "${local.rel_path_root}/build/TrailAlertsCloudTrailAnalyzer.zip"
+  excludes    = ["__pycache__", "tests"]
 }
 
 # Create Lambda role

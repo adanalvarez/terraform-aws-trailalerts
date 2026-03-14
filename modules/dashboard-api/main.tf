@@ -4,17 +4,11 @@ data "aws_region" "current" {}
 # Lambda package
 # -------------------------------------------------------
 
-resource "null_resource" "create_zip_every_time" {
-  triggers = {
-    always_run = timestamp()
-  }
-}
-
 data "archive_file" "dashboard_api_zip" {
-  depends_on  = [null_resource.create_zip_every_time]
   type        = "zip"
   source_dir  = "${local.rel_path_root}/lambda_code/dashboard_api"
   output_path = "${local.rel_path_root}/build/TrailAlertsDashboardApi.zip"
+  excludes    = ["__pycache__", "tests"]
 }
 
 # -------------------------------------------------------

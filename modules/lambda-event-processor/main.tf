@@ -1,14 +1,8 @@
-resource "null_resource" "create_zip_every_time" {
-  triggers = {
-    always_run = timestamp()
-  }
-}
-
 data "archive_file" "trailalerts_event_processor_zip" {
-  depends_on  = [null_resource.create_zip_every_time]
   type        = "zip"
   source_dir  = "${local.rel_path_root}/lambda_code/event_processor"
   output_path = "${local.rel_path_root}/build/TrailAlertsEventProcessor.zip"
+  excludes    = ["__pycache__", "tests"]
 }
 
 resource "aws_lambda_function" "trailalerts_event_processor" {
