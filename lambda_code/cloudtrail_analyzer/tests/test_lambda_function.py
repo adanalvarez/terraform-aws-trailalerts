@@ -21,6 +21,8 @@ with patch("boto3.client"):
     from lambda_function import (
         build_rule_index,
         get_candidate_rules,
+        load_sigma_rules,
+        reload_sigma_rules_if_needed,
         _build_sqs_message,
         _flush_sqs_batch,
         MAX_SQS_RETRIES,
@@ -300,6 +302,58 @@ class TestGetCandidateRules:
 
 
 # ---------------------------------------------------------------------------
+# load_sigma_rules / reload_sigma_rules_if_needed
+# ---------------------------------------------------------------------------
+class TestSigmaRuleLoading:
+    def test_load_sigma_rules_skips_bad_files_and_keeps_good_ones(self):
+        objects = [
+            {"Key": "sigma_rules/good.yaml"},
+            {"Key": "sigma_rules/bad.yaml"},
+            {"Key": "sigma_rules/ignore.txt"},
+        ]
+
+        def _get_object_side_effect(*, Bucket, Key):
+            if Key == "sigma_rules/good.yaml":
+                return {
+                    "Body": MagicMock(
+                        read=MagicMock(
+                            return_value=b"title: Good Rule\ndetection:\n  selection:\n    eventSource: iam.amazonaws.com\n    eventName: CreateUser\n  condition: selection\n"
+                        )
+                    )
+                }
+            if Key == "sigma_rules/bad.yaml":
+                return {"Body": MagicMock(read=MagicMock(return_value=b"title: [broken"))}
+            raise AssertionError(f"Unexpected S3 key requested: {Key}")
+
+        with patch.object(lambda_function, "list_s3_objects_cached", return_value=objects), \
+             patch.object(lambda_function, "s3_client") as mock_s3:
+            mock_s3.get_object.side_effect = _get_object_side_effect
+
+            rules = load_sigma_rules("test-bucket")
+
+        assert len(rules) == 1
+        assert rules[0]["title"] == "Good Rule"
+
+    def test_reload_sigma_rules_if_needed_keeps_last_good_cache_on_invalid_refresh(self):
+        existing_rule = _simple_rule("Existing Rule", "iam.amazonaws.com", "CreateUser")
+        existing_index, existing_wildcards = build_rule_index([existing_rule])
+
+        lambda_function.sigma_rules_cache = [existing_rule]
+        lambda_function.sigma_rules_etag_hash = "old-hash"
+        lambda_function.rule_index = existing_index
+        lambda_function.wildcard_rules = existing_wildcards
+
+        with patch.object(lambda_function, "compute_s3_files_hash", return_value="new-hash"), \
+             patch.object(lambda_function, "load_sigma_rules", side_effect=RuntimeError("No valid Sigma rules could be loaded from S3")):
+            reload_sigma_rules_if_needed()
+
+        assert lambda_function.sigma_rules_cache == [existing_rule]
+        assert lambda_function.sigma_rules_etag_hash == "old-hash"
+        assert lambda_function.rule_index == existing_index
+        assert lambda_function.wildcard_rules == existing_wildcards
+
+
+# ---------------------------------------------------------------------------
 # _build_sqs_message
 # ---------------------------------------------------------------------------
 class TestBuildSqsMessage:
@@ -416,3 +470,87 @@ class TestFlushSqsBatch:
             mock_sqs.send_message_batch.return_value = {"Successful": [{"Id": "a1"}]}
             _flush_sqs_batch([{"Id": "a1", "MessageBody": "{}"}])
             mock_sqs.send_message_batch.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Failure propagation
+# ---------------------------------------------------------------------------
+class TestFailurePropagation:
+    def test_process_cloudtrail_records_reraises_batch_failures(self):
+        content = json.dumps({
+            "Records": [{"eventSource": "iam.amazonaws.com", "eventName": "CreateUser"}]
+        })
+
+        with patch.object(lambda_function, "get_candidate_rules", return_value=[{"title": "R1"}]), \
+             patch.object(lambda_function, "matches_sigma_rule", return_value=True), \
+             patch.object(lambda_function, "_build_sqs_message", return_value={"Id": "a1", "MessageBody": "{}"}), \
+             patch.object(lambda_function, "_flush_sqs_batch", side_effect=RuntimeError("sqs failed")):
+            with pytest.raises(RuntimeError, match="CloudTrail record processing failure"):
+                lambda_function.process_cloudtrail_records(content)
+
+    def test_process_cloudtrail_records_continues_after_record_error(self):
+        content = json.dumps({
+            "Records": [
+                {"eventSource": "iam.amazonaws.com", "eventName": "CreateUser"},
+                {"eventSource": "iam.amazonaws.com", "eventName": "DeleteUser"},
+            ]
+        })
+
+        def _match_side_effect(record, _rule):
+            if record["eventName"] == "CreateUser":
+                raise RuntimeError("bad first record")
+            return True
+
+        with patch.object(lambda_function, "get_candidate_rules", return_value=[{"title": "R1"}]), \
+             patch.object(lambda_function, "matches_sigma_rule", side_effect=_match_side_effect), \
+             patch.object(lambda_function, "_build_sqs_message", return_value={"Id": "a1", "MessageBody": "{}"}) as build_mock, \
+             patch.object(lambda_function, "_flush_sqs_batch") as flush_mock:
+            with pytest.raises(RuntimeError, match="1 CloudTrail record processing failure"):
+                lambda_function.process_cloudtrail_records(content)
+
+        build_mock.assert_called_once()
+        flush_mock.assert_called_once()
+
+    def test_lambda_handler_reraises_record_processing_failures(self):
+        event = {
+            "Records": [
+                {
+                    "s3": {
+                        "bucket": {"name": "test-bucket"},
+                        "object": {"key": "cloudtrail/test.json.gz"},
+                    }
+                }
+            ]
+        }
+
+        with patch.object(lambda_function, "reload_sigma_rules_if_needed"), \
+             patch.object(lambda_function, "fetch_s3_object", return_value='{"Records": []}'), \
+             patch.object(lambda_function, "process_cloudtrail_records", side_effect=RuntimeError("processing failed")):
+            with pytest.raises(RuntimeError, match="Failed to process 1 S3 event record"):
+                lambda_function.lambda_handler(event, None)
+
+    def test_lambda_handler_continues_other_s3_records_before_raising(self):
+        event = {
+            "Records": [
+                {
+                    "s3": {
+                        "bucket": {"name": "test-bucket"},
+                        "object": {"key": "cloudtrail/first.json.gz"},
+                    }
+                },
+                {
+                    "s3": {
+                        "bucket": {"name": "test-bucket"},
+                        "object": {"key": "cloudtrail/second.json.gz"},
+                    }
+                },
+            ]
+        }
+
+        with patch.object(lambda_function, "reload_sigma_rules_if_needed"), \
+             patch.object(lambda_function, "fetch_s3_object", side_effect=['{"Records": []}', '{"Records": []}']), \
+             patch.object(lambda_function, "process_cloudtrail_records", side_effect=[RuntimeError("processing failed"), None]) as process_mock:
+            with pytest.raises(RuntimeError, match="Failed to process 1 S3 event record"):
+                lambda_function.lambda_handler(event, None)
+
+        assert process_mock.call_count == 2

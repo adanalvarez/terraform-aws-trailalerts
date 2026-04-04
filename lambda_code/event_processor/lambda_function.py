@@ -296,9 +296,6 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
                 logger.info(f"Using threshold info for notification: {threshold_info}")
             else:
                 logger.warning("Threshold was exceeded but no threshold info was generated")
-            
-            # Store as a regular event for long-term storage
-            dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
         else:
             logger.info(f"Threshold not exceeded for rule: {rule_metadata.get('title', 'unknown')}, keeping original severity: {rule_metadata.get('level', 'info')}")
     
@@ -322,23 +319,28 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
             # Use global cooldown for correlation events
             cooldown_minutes = global_cooldown_minutes
             logger.info(f"Using global cooldown period of {cooldown_minutes} minutes for correlation rule '{rule_metadata.get('title')}'")
-            
-            # Store as a regular event for long-term storage
-            dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
         else:
             logger.info(f"No correlation found for rule: {rule_metadata.get('title', 'unknown')}, keeping original severity: {rule_metadata.get('level', 'info')}")
     
     else:
         # Regular event processing
         logger.info(f"Processing regular event for rule: {rule_metadata.get('title', 'unknown')}")
-        if dynamodb_helper:
-            dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
-        else:
-            logger.info("DynamoDB table not configured - skipping event storage")
         
         # Use global cooldown for regular events
         cooldown_minutes = global_cooldown_minutes
         logger.info(f"Using global cooldown period of {cooldown_minutes} minutes for regular rule '{rule_metadata.get('title')}'")
+
+    # Always store a dashboard-visible history record using the final severity.
+    # Threshold/correlation records still keep their dedicated tracking entries,
+    # but the Alerts tab should show all processed alerts under the shared EVENT pk.
+    if dynamodb_helper:
+        logger.info(
+            f"Storing dashboard history entry for rule: {rule_metadata.get('title', 'unknown')} "
+            f"with severity: {rule_metadata.get('level', current_severity)}"
+        )
+        dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
+    else:
+        logger.info("DynamoDB table not configured - skipping event storage")
 
     # Only send notifications if severity meets threshold or if threshold was exceeded
     min_severity = os.environ.get("MIN_NOTIFICATION_SEVERITY", DEFAULT_MIN_SEVERITY)

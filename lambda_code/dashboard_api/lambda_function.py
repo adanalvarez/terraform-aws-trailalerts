@@ -343,7 +343,7 @@ def get_alert_detail(pk: str, sk: str) -> dict:
 
 
 def get_alert_stats(params: dict) -> dict:
-    """GET /api/alerts/stats — summary statistics."""
+    """GET /api/alerts/stats — summary statistics for dashboard-visible EVENT history."""
     table = _get_table()
     if table is None:
         return _response(503, {"error": "Alert history not available"})
@@ -353,21 +353,27 @@ def get_alert_stats(params: dict) -> dict:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         start_time = (now - timedelta(hours=hours)).isoformat()
 
-        scan_params = {
+        query_params = {
+            "KeyConditionExpression": "pk = :pk",
             "FilterExpression": "#ts >= :start",
             "ExpressionAttributeNames": {"#ts": "timestamp"},
-            "ExpressionAttributeValues": {":start": start_time},
+            "ExpressionAttributeValues": {
+                ":pk": "EVENT",
+                ":start": start_time,
+            },
             "ProjectionExpression": "#ts, severity, sigmaRuleTitle",
+            "ScanIndexForward": False,
         }
 
         items = []
         while True:
-            response = table.scan(**scan_params)
+            response = table.query(**query_params)
             items.extend(response.get("Items", []))
 
-            if "LastEvaluatedKey" not in response:
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
                 break
-            scan_params["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            query_params["ExclusiveStartKey"] = last_evaluated_key
 
         # Aggregate stats
         by_severity = {}
