@@ -356,16 +356,17 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
         if not should_notify:
             # The notification was skipped due to cooldown
             cooldown_applied = True
-            
-        if should_notify:
-            # Update the last notification time
-            notification_helper.update_notification_time(rule_title)
     elif should_notify and not notification_helper:
         logger.info("DynamoDB table not configured - cooldown tracking disabled, always sending notifications")
     
     if should_notify:
         logger.info(f"SENDING NOTIFICATION: Severity {current_severity} meets or exceeds threshold {min_severity} or threshold was exceeded")
-        send_notifications(matched_event, rule_metadata, config, correlated_events, threshold_info)
+        notification_sent = send_notifications(matched_event, rule_metadata, config, correlated_events, threshold_info)
+
+        if notification_sent and cooldown_minutes is not None and notification_helper:
+            notification_helper.update_notification_time(rule_metadata.get('title', 'unknown'))
+        elif not notification_sent:
+            logger.error("NOTIFICATION FAILED: Cooldown was not updated so the alert can be retried")
     else:
         if cooldown_applied:
             logger.info(f"SKIPPING NOTIFICATION: In cooldown period (notification threshold was met but cooldown period is active)")
@@ -397,7 +398,7 @@ def determine_event_type(rule_metadata: Dict[str, Any]) -> str:
 
 def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
                       config: Dict[str, Any], correlated_events: List[Dict[str, Any]] = None,
-                      threshold_info: Dict[str, Any] = None) -> None:
+                      threshold_info: Dict[str, Any] = None) -> bool:
     """
     Send notifications using either SNS or SES based on configuration.
     
@@ -407,20 +408,23 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
         config: Configuration dictionary
         correlated_events: Optional list of correlated events
         threshold_info: Optional dictionary containing threshold information
+
+    Returns:
+        bool: True when the notification request was accepted, False otherwise
     """
     # Find the appropriate plugin
     plugin = plugin_registry.get_plugin_for_event(matched_event)
     
     if not plugin:
         logger.warning(f"No plugin found for event type: {matched_event.get('eventType', 'unknown')}")
-        return
+        return False
     
     # Debug logging to trace threshold information
     logger.info(f"DEBUG: Received threshold_info in send_notifications: {threshold_info}")
     
     if config.get("sns_topic"):
         logger.info("Sending notification via SNS")
-        sns_send_email(config["sns_topic"], matched_event, correlated_events, threshold_info, rule_metadata)
+        return sns_send_email(config["sns_topic"], matched_event, correlated_events, threshold_info, rule_metadata)
     elif config.get("source_email") and config.get("destination_email"):
         sections = []
         
@@ -468,7 +472,7 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
         logger.info("Generating HTML email")
         email_html = generate_email_html(generate_style(), sections)
 
-        ses_send_email(
+        return ses_send_email(
             email_html, 
             matched_event, 
             config["source_email"], 
@@ -479,3 +483,4 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
         )
     else:
         logger.warning("No notification method configured - skipping notifications")
+        return False

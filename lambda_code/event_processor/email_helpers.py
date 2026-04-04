@@ -224,7 +224,7 @@ def generate_sigma_rule_section(rule: Dict[str, Any]) -> str:
 def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str, 
                   destination_email: str, rule: Dict[str, Any],
                   correlated_events: List[Dict[str, Any]] = None,
-                  threshold_info: Dict[str, Any] = None) -> None:
+                  threshold_info: Dict[str, Any] = None) -> bool:
     """
     Sends an email using AWS SES.
     
@@ -236,6 +236,9 @@ def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str,
         rule: The Sigma rule that triggered the alert
         correlated_events: Optional list of correlated events
         threshold_info: Optional threshold information
+
+    Returns:
+        bool: True when SES accepted the email request, False otherwise
     """
     ses_client = boto3.client("ses")
     rule_title = rule.get("title", "Unknown Rule")
@@ -260,13 +263,15 @@ def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str,
             },
         )
         logging.info(f"Email sent: {response['MessageId']}")
+        return True
     except ClientError as e:
         logging.error(f"Failed to send email: {str(e)}")
+        return False
 
 def sns_send_email(sns_topic: str, records: Dict[str, Any], 
                   correlated_events: List[Dict[str, Any]] = None,
                   threshold_info: Dict[str, Any] = None,
-                  rule_metadata: Dict[str, Any] = None) -> None:
+                  rule_metadata: Dict[str, Any] = None) -> bool:
     """
     Sends a message to an SNS topic.
     
@@ -276,6 +281,9 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
         correlated_events: Optional list of correlated events
         threshold_info: Optional dictionary containing threshold information
         rule_metadata: Optional rule metadata containing severity information
+
+    Returns:
+        bool: True when SNS accepted the publish request, False otherwise
     """
     sns_client = boto3.client("sns")
     
@@ -335,5 +343,7 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
             Subject=subject[:100]
         )
         logging.info(f"SNS notification sent to {sns_topic}")
+        return True
     except ClientError as e:
         logging.error(f"Failed to send SNS notification: {str(e)}")
+        return False
