@@ -59,7 +59,7 @@ jobs:
           cache-dependency-path: scripts/lambda-layer/requirements.txt
 
       - name: Install dependencies
-        run: pip install pytest
+        run: pip install pytest boto3
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
