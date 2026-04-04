@@ -74,6 +74,8 @@ class GenericEventPlugin(EventSourcePlugin):
         """
         # Extract and escape event details
         event_type = html.escape(str(event.get('eventType', 'unknown')))
+        event_name = html.escape(str(event.get('eventName', 'unknown')))
+        event_source = html.escape(str(event.get('eventSource', event.get('source', 'unknown'))))
         actor = html.escape(str(self.extract_actor(event)))
         source_ip = html.escape(str(event.get('sourceIPAddress', 'unknown')))
         timestamp = html.escape(str(event.get('eventTime', 'unknown')))
@@ -84,12 +86,40 @@ class GenericEventPlugin(EventSourcePlugin):
         section = f"""
         <div class='section'>
             <div class='section-title'>Event Information</div>
-            <div>Event Type: <span class='value'>{event_type}</span></div>
-            <div>Actor: <span class='value'>{actor}</span></div>
-            <div>Source IP: <span class='value'>{source_ip}</span></div>
-            <div>Timestamp: <span class='value'>{timestamp}</span></div>
-            <div>Region: <span class='value'>{region}</span></div>
-            <div>Account ID: <span class='value'>{account_id}</span></div>
+            <div class='section-body'>
+                <div class='detail-row'>
+                    <div class='detail-label'>Time</div>
+                    <div class='value'>{timestamp}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Event</div>
+                    <div class='value'>{event_name}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Event Source</div>
+                    <div class='value'>{event_source}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Actor</div>
+                    <div class='value'>{actor}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Source IP</div>
+                    <div class='value'>{source_ip}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Region</div>
+                    <div class='value'>{region}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Account ID</div>
+                    <div class='value'>{account_id}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Event Type</div>
+                    <div class='value'>{event_type}</div>
+                </div>
+            </div>
         </div>
         """
         
