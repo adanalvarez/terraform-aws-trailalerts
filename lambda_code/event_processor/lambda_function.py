@@ -55,7 +55,7 @@ OPTIONAL_ENV_VARS = {
     "MIN_NOTIFICATION_SEVERITY": "Minimum severity level for sending notifications"
 }
 
-def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda function entry point.
     
@@ -64,14 +64,22 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
         context: The Lambda context
         
     Returns:
-        Dict containing status code and message
+        Dict containing status code/message or SQS partial batch failures
     """
     try:
+        sqs_records = [
+            record for record in event.get("Records", [])
+            if record.get("eventSource") == "aws:sqs"
+        ]
+        batch_failures: List[Dict[str, str]] = []
+
         # Validate environment variables
         missing_vars = [var for var in REQUIRED_ENV_VARS if not os.environ.get(var)]
         if missing_vars:
             error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
             logger.error(error_msg)
+            if sqs_records:
+                raise RuntimeError(error_msg)
             return {"statusCode": "500", "body": error_msg}
         
         # Log optional environment variables
@@ -84,82 +92,87 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
         # Register plugins
         register_plugins()
         
-        # Process SQS messages
-        if "Records" in event:
-            for record in event["Records"]:
-                if record.get("eventSource") == "aws:sqs":
-                    try:
-                        # Parse the message body
-                        message_body = json.loads(record.get("body", "{}"))
-                        logger.debug(f"Received message body: {json.dumps(message_body)[:500]}...")
-                        
-                        # Initialize rule_metadata
-                        rule_metadata = {}
-                        
-                        # Extract both formats of rule data
-                        sigma_rule_data = message_body.get("sigma_rule_data")
-                        sigma_rule_title = message_body.get("sigma_rule_title", "Unknown Rule")
-                        sigma_rule_id = message_body.get("sigma_rule_id", "unknown")
-                        
-                        # If sigma_rule_data exists, try to use it
-                        if sigma_rule_data is not None:
-                            if isinstance(sigma_rule_data, str):
-                                try:
-                                    rule_metadata = json.loads(sigma_rule_data)
-                                except json.JSONDecodeError:
-                                    logger.error(f"Failed to parse sigma_rule_data as JSON: {sigma_rule_data[:100]}...")
-                                    # Fall back to individual fields if parsing fails
-                                    rule_metadata = {
-                                        "title": sigma_rule_title,
-                                        "id": sigma_rule_id,
-                                        "level": "medium"  # Default level
-                                    }
-                            else:
-                                # If it's already a dictionary, use it directly
-                                rule_metadata = sigma_rule_data
-                        else:
-                            # If sigma_rule_data doesn't exist, use individual fields
+        # Process SQS messages with partial batch failure handling
+        for record in sqs_records:
+            message_id = record.get("messageId")
+            try:
+                # Parse the message body
+                message_body = json.loads(record.get("body", "{}"))
+                logger.debug(f"Received message body: {json.dumps(message_body)[:500]}...")
+                
+                # Initialize rule_metadata
+                rule_metadata = {}
+                
+                # Extract both formats of rule data
+                sigma_rule_data = message_body.get("sigma_rule_data")
+                sigma_rule_title = message_body.get("sigma_rule_title", "Unknown Rule")
+                sigma_rule_id = message_body.get("sigma_rule_id", "unknown")
+                
+                # If sigma_rule_data exists, try to use it
+                if sigma_rule_data is not None:
+                    if isinstance(sigma_rule_data, str):
+                        try:
+                            rule_metadata = json.loads(sigma_rule_data)
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse sigma_rule_data as JSON: {sigma_rule_data[:100]}...")
+                            # Fall back to individual fields if parsing fails
                             rule_metadata = {
                                 "title": sigma_rule_title,
                                 "id": sigma_rule_id,
                                 "level": "medium"  # Default level
                             }
-                        
-                        logger.info(f"Processing rule: {rule_metadata.get('title', 'unknown')} (ID: {rule_metadata.get('id', 'unknown')})")
-                        
-                        matched_event = message_body.get("matched_event", {})
-                        if not matched_event:
-                            logger.error("No matched_event field in the message body")
-                            continue
-                            
-                        # Add sigma rule title to the event if available
-                        if rule_metadata.get("title") and "sigmaRuleTitle" not in matched_event:
-                            matched_event["sigmaRuleTitle"] = rule_metadata.get("title")
-                        
-                        # Add event source if it's missing
-                        if "sigmaEventSource" not in matched_event and "eventSource" in matched_event:
-                            # For CloudTrail events, use the CloudTrail source
-                            matched_event["sigmaEventSource"] = "CloudTrail"
-                        
-                        # Process the event
-                        process_event(matched_event, rule_metadata, {
-                            "sns_topic": os.environ.get("SNS_TOPIC_ARN"),
-                            "source_email": os.environ.get("SOURCE_EMAIL"),
-                            "destination_email": os.environ.get("EMAIL_RECIPIENT"),
-                            "api_key": os.environ.get("VPNAPI_KEY"),
-                            "correlation_enabled": os.environ.get("CORRELATION_ENABLED", "false")
-                        })
-                    except Exception as e:
-                        logger.error(f"Error processing SQS message: {str(e)}")
-                        # Log the message body for debugging
-                        try:
-                            logger.error(f"Message body: {record.get('body', '{}')[:500]}...")
-                        except:
-                            logger.error("Could not log message body")
+                    else:
+                        # If it's already a dictionary, use it directly
+                        rule_metadata = sigma_rule_data
+                else:
+                    # If sigma_rule_data doesn't exist, use individual fields
+                    rule_metadata = {
+                        "title": sigma_rule_title,
+                        "id": sigma_rule_id,
+                        "level": "medium"  # Default level
+                    }
+                
+                logger.info(f"Processing rule: {rule_metadata.get('title', 'unknown')} (ID: {rule_metadata.get('id', 'unknown')})")
+                
+                matched_event = message_body.get("matched_event", {})
+                if not matched_event:
+                    raise ValueError("No matched_event field in the message body")
+                    
+                # Add sigma rule title to the event if available
+                if rule_metadata.get("title") and "sigmaRuleTitle" not in matched_event:
+                    matched_event["sigmaRuleTitle"] = rule_metadata.get("title")
+                
+                # Add event source if it's missing
+                if "sigmaEventSource" not in matched_event and "eventSource" in matched_event:
+                    # For CloudTrail events, use the CloudTrail source
+                    matched_event["sigmaEventSource"] = "CloudTrail"
+                
+                # Process the event
+                process_event(matched_event, rule_metadata, {
+                    "sns_topic": os.environ.get("SNS_TOPIC_ARN"),
+                    "source_email": os.environ.get("SOURCE_EMAIL"),
+                    "destination_email": os.environ.get("EMAIL_RECIPIENT"),
+                    "api_key": os.environ.get("VPNAPI_KEY"),
+                    "correlation_enabled": os.environ.get("CORRELATION_ENABLED", "false")
+                })
+            except Exception as e:
+                logger.exception(f"Error processing SQS message{f' {message_id}' if message_id else ''}: {str(e)}")
+                if message_id:
+                    batch_failures.append({"itemIdentifier": message_id})
+                # Log the message body for debugging
+                try:
+                    logger.error(f"Message body: {record.get('body', '{}')[:500]}...")
+                except Exception:
+                    logger.error("Could not log message body")
         
+        if sqs_records:
+            return {"batchItemFailures": batch_failures}
+
         return {"statusCode": "200", "body": "Event processed successfully"}
     except Exception as e:
-        logger.error(f"Error in lambda_handler: {str(e)}")
+        logger.exception(f"Error in lambda_handler: {str(e)}")
+        if any(record.get("eventSource") == "aws:sqs" for record in event.get("Records", [])):
+            raise
         return {"statusCode": "500", "body": f"Error: {str(e)}"}
 
 def register_plugins() -> None:
