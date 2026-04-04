@@ -62,9 +62,6 @@ def generate_email_html(style: str, sections: List[str]) -> str:
                         <div class="header">
                             <div class="header-kicker">TrailAlerts</div>
                             <div class="header-title">CloudTrail Alert</div>
-                            <div class="header-subtitle">
-                                This notification mirrors the TrailAlerts dashboard layout so analysts can review the same key fields quickly and consistently.
-                            </div>
                         </div>
                         <div class="intro">
                             <div class="intro-title">Security event summary</div>

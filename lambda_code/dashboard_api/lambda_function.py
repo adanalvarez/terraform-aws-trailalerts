@@ -16,7 +16,7 @@ import boto3
 from urllib.parse import unquote_plus
 from botocore.exceptions import ClientError
 from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -96,6 +96,53 @@ def _validate_sigma_rule(content: str) -> tuple:
         return False, "Detection block must contain a 'condition' field"
 
     return True, rule
+
+
+_ALERT_SUMMARY_PROJECTION = (
+    "pk, sk, #ts, actor, target, accountId, severity, sourceIp, "
+    "userAgent, sigmaRuleId, sigmaRuleTitle, eventName, sourceType, eventType"
+)
+
+
+def _parse_next_token(next_token: str) -> dict | None:
+    """Decode a pagination token coming from the dashboard query string."""
+    if not next_token:
+        return None
+
+    try:
+        return json.loads(unquote_plus(next_token))
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid nextToken") from exc
+
+
+def _collect_alert_pages(fetch_page, base_params: dict, limit: int) -> tuple[list[dict], int, dict | None]:
+    """
+    Keep querying DynamoDB until we collect enough matching alert summaries.
+
+    DynamoDB applies filters after reading a page, so a single query can return
+    fewer matching items than requested even when more recent matches exist.
+    """
+    items = []
+    scanned_count = 0
+    last_evaluated_key = base_params.get("ExclusiveStartKey")
+    request_params = dict(base_params)
+
+    while len(items) < limit:
+        page_params = dict(request_params)
+        page_params["Limit"] = max(1, limit - len(items))
+
+        response = fetch_page(**page_params)
+        page_items = response.get("Items", [])
+        items.extend(page_items)
+        scanned_count += response.get("ScannedCount", len(page_items))
+
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+
+        request_params["ExclusiveStartKey"] = last_evaluated_key
+
+    return items[:limit], scanned_count, last_evaluated_key
 
 
 # ---------------------------------------------------------------------------
@@ -207,19 +254,18 @@ def get_alerts(params: dict) -> dict:
         return _response(503, {"error": "Alert history not available (DynamoDB not configured)"})
 
     try:
-        limit = min(int(params.get("limit", 50)), 200)
-        rule_filter = params.get("rule", "")
-        severity_filter = params.get("severity", "")
-        hours = int(params.get("hours", 24))
-        exclusive_start_key = params.get("nextToken", "")
+        limit = max(1, min(int(params.get("limit", 50)), 200))
+        rule_filter = (params.get("rule", "") or "").strip()
+        severity_filter = (params.get("severity", "") or "").strip()
+        hours = max(1, int(params.get("hours", 24)))
+        exclusive_start_key = _parse_next_token(params.get("nextToken", ""))
 
         # Determine time range
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         start_time = (now - timedelta(hours=hours)).isoformat()
 
-        # Build query/scan parameters
+        # Build recent-first query parameters
         if rule_filter:
-            # Query using sigmaRuleTitleIndex GSI
             query_params = {
                 "IndexName": "sigmaRuleTitleIndex",
                 "KeyConditionExpression": "sigmaRuleTitle = :rule AND #ts >= :start",
@@ -228,54 +274,52 @@ def get_alerts(params: dict) -> dict:
                     ":rule": rule_filter,
                     ":start": start_time,
                 },
-                "Limit": limit,
+                "ProjectionExpression": _ALERT_SUMMARY_PROJECTION,
                 "ScanIndexForward": False,
             }
 
             if severity_filter:
                 query_params["FilterExpression"] = "severity = :sev"
                 query_params["ExpressionAttributeValues"][":sev"] = severity_filter
-
-            if exclusive_start_key:
-                query_params["ExclusiveStartKey"] = json.loads(exclusive_start_key)
-
-            response = table.query(**query_params)
         else:
-            # Scan with filters (less efficient but simple for browsing)
-            scan_params = {
-                "Limit": limit,
-                "FilterExpression": "#ts >= :start",
+            query_params = {
+                "KeyConditionExpression": "pk = :pk",
                 "ExpressionAttributeNames": {"#ts": "timestamp"},
-                "ExpressionAttributeValues": {":start": start_time},
+                "ExpressionAttributeValues": {
+                    ":pk": "EVENT",
+                    ":start": start_time,
+                },
+                "ProjectionExpression": _ALERT_SUMMARY_PROJECTION,
+                "FilterExpression": "#ts >= :start",
+                "ScanIndexForward": False,
             }
 
             if severity_filter:
-                scan_params["FilterExpression"] += " AND severity = :sev"
-                scan_params["ExpressionAttributeValues"][":sev"] = severity_filter
+                query_params["FilterExpression"] += " AND severity = :sev"
+                query_params["ExpressionAttributeValues"][":sev"] = severity_filter
 
-            if exclusive_start_key:
-                scan_params["ExclusiveStartKey"] = json.loads(exclusive_start_key)
+        if exclusive_start_key:
+            query_params["ExclusiveStartKey"] = exclusive_start_key
 
-            response = table.scan(**scan_params)
-
-        items = response.get("Items", [])
-
-        # Strip rawEvent to reduce payload size (include only on detail request)
-        for item in items:
-            if "rawEvent" in item:
-                item.pop("rawEvent")
+        items, scanned_count, last_evaluated_key = _collect_alert_pages(
+            table.query,
+            query_params,
+            limit,
+        )
 
         result = {
             "alerts": items,
             "count": len(items),
-            "scannedCount": response.get("ScannedCount", 0),
+            "scannedCount": scanned_count,
         }
 
-        if "LastEvaluatedKey" in response:
-            result["nextToken"] = json.dumps(response["LastEvaluatedKey"], cls=DecimalEncoder)
+        if last_evaluated_key:
+            result["nextToken"] = json.dumps(last_evaluated_key, cls=DecimalEncoder)
 
         return _response(200, result)
 
+    except ValueError as e:
+        return _response(400, {"error": str(e)})
     except Exception as e:
         logger.error(f"Error querying alerts: {e}")
         return _response(500, {"error": "Failed to query alerts"})
@@ -305,18 +349,25 @@ def get_alert_stats(params: dict) -> dict:
         return _response(503, {"error": "Alert history not available"})
 
     try:
-        hours = int(params.get("hours", 24))
-        now = datetime.utcnow()
+        hours = max(1, int(params.get("hours", 24)))
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         start_time = (now - timedelta(hours=hours)).isoformat()
 
-        response = table.scan(
-            FilterExpression="#ts >= :start",
-            ExpressionAttributeNames={"#ts": "timestamp"},
-            ExpressionAttributeValues={":start": start_time},
-            Select="ALL_ATTRIBUTES",
-        )
+        scan_params = {
+            "FilterExpression": "#ts >= :start",
+            "ExpressionAttributeNames": {"#ts": "timestamp"},
+            "ExpressionAttributeValues": {":start": start_time},
+            "ProjectionExpression": "#ts, severity, sigmaRuleTitle",
+        }
 
-        items = response.get("Items", [])
+        items = []
+        while True:
+            response = table.scan(**scan_params)
+            items.extend(response.get("Items", []))
+
+            if "LastEvaluatedKey" not in response:
+                break
+            scan_params["ExclusiveStartKey"] = response["LastEvaluatedKey"]
 
         # Aggregate stats
         by_severity = {}

@@ -14,7 +14,7 @@ def generate_style() -> str:
 
         body {
             margin: 0;
-            padding: 24px 12px;
+            padding: 0;
             font-family: 'Inter', 'Roboto', Arial, sans-serif;
             background-color: #8ECAE6;
             color: #2B2D31;
@@ -23,6 +23,8 @@ def generate_style() -> str:
 
         .email-shell {
             width: 100%;
+            padding: 24px 12px 28px;
+            box-sizing: border-box;
             background-color: #8ECAE6;
         }
 
@@ -299,8 +301,8 @@ def generate_style() -> str:
         }
 
         @media only screen and (max-width: 640px) {
-            body {
-                padding: 12px 6px;
+            .email-shell {
+                padding: 12px 6px 16px;
             }
 
             .header,
