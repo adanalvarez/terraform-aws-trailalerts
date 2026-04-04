@@ -1,6 +1,7 @@
 resource "null_resource" "build_trailalerts_lambda_layer" {
   triggers = {
-    always_run = timestamp()
+    requirements = filemd5("${local.rel_path_root}/scripts/lambda-layer/requirements.txt")
+    build_script = filemd5("${local.rel_path_root}/scripts/lambda-layer/build.sh")
   }
 
   provisioner "local-exec" {

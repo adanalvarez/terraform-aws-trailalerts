@@ -105,14 +105,40 @@ class CloudTrailPlugin(EventSourcePlugin):
         section = f"""
         <div class='section'>
             <div class='section-title'>Event Information</div>
-            <div>Event Type: <span class='value'>{event_type}</span></div>
-            <div>Event Name: <span class='value'>{event_name}</span></div>
-            <div>Event Source: <span class='value'>{event_source}</span></div>
-            <div>Actor: <span class='value'>{actor}</span></div>
-            <div>Source IP: <span class='value'>{source_ip}</span></div>
-            <div>Timestamp: <span class='value'>{timestamp}</span></div>
-            <div>Region: <span class='value'>{region}</span></div>
-            <div>Account ID: <span class='value'>{account_id}</span></div>
+            <div class='section-body'>
+                <div class='detail-row'>
+                    <div class='detail-label'>Time</div>
+                    <div class='value'>{timestamp}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Event</div>
+                    <div class='value'>{event_name}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Event Source</div>
+                    <div class='value'>{event_source}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Actor</div>
+                    <div class='value'>{actor}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Source IP</div>
+                    <div class='value'>{source_ip}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Region</div>
+                    <div class='value'>{region}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Account ID</div>
+                    <div class='value'>{account_id}</div>
+                </div>
+                <div class='detail-row'>
+                    <div class='detail-label'>Event Type</div>
+                    <div class='value'>{event_type}</div>
+                </div>
+            </div>
         </div>
         """
         

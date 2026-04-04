@@ -13,6 +13,7 @@ It is aimed at people/companies who do **not** need a SIEM but still want owners
 
 * **Sigma rules:** Drop in community Sigma rules or write your own and version-control them with the rest of your infrastructure.
 * **Total control of the alerting pipeline:** Decide exactly what you want to see, correlate related events, and publish notifications via SNS or SES.
+* **Optional web dashboard:** Enable a fully integrated dashboard to browse alert history, manage Sigma rules, post-processing rules and exceptions.
 * **All-serverless:** Built on Lambda, S3, SQS and DynamoDB, so you pay only for what you actually run.
 
 ## Motivation
@@ -42,6 +43,7 @@ TrailAlerts fills that gap: the power to write your own rules without the cost o
   - [Detection Rules](#detection-rules)
   - [Correlation Engine](#correlation-engine)
   - [Notification System](#notification-system)
+- [Web Dashboard (Optional)](#web-dashboard-optional)
 - [Infrastructure](#infrastructure)
 - [Enrichment](#enrichment)
 - [Rule Compatibility](#rule-compatibility)
@@ -59,7 +61,8 @@ Key features:
 - Event correlation for detecting attack patterns
 - Customizable alerting thresholds and notification settings
 - Serverless architecture for cost-efficiency and scalability
-- Allow exeptions based on IPs or identity.
+- Allow exceptions based on IPs or identity
+- Optional web dashboard for alert history, rule management and exceptions
 - Terraform-managed infrastructure
 
 ## Architecture
@@ -74,6 +77,7 @@ The system uses a serverless architecture built around AWS Lambda, SQS, DynamoDB
 4. The Event Processor Lambda consumes messages from the queue
 5. If correlation is enabled, events are stored in DynamoDB for pattern matching
 6. If event matches the rules, alerts are sent via SNS or SES (SES recommended)
+7. *(Optional)* If the dashboard is enabled, matched events are also stored in DynamoDB and can be browsed through the web UI
 
 ## Technical Details
 
@@ -280,16 +284,42 @@ The notification system supports:
 4. Cooldown periods to prevent alert fatigue
 5. Rich HTML emails with event details, resources affected, and context
 
+### Web Dashboard (Optional)
+
+When `enable_dashboard = true`, TrailAlerts deploys a lightweight web dashboard that gives you a browser-based interface for operating and monitoring the detection pipeline. The dashboard is entirely optional — all core detection and alerting capabilities work without it.
+
+The dashboard lets you:
+
+- **View alert history** — browse, filter and sort alerts by time, severity, rule name, or actor with paginated results.
+- **Manage Sigma rules** — create, edit and delete Sigma rules directly in a YAML editor without touching S3.
+- **Manage post-processing rules** — add or modify correlation and threshold rules from the UI.
+- **Manage exceptions** — define excluded actors, IPs and regex patterns per rule.
+- **Overview** — see a 24-hour summary with total alerts, severity breakdown and top-triggered rules.
+
+**Architecture:**
+
+| Component | AWS Service |
+|-----------|-------------|
+| Authentication | Cognito User Pool with username/password + optional MFA |
+| API | API Gateway (HTTP) → Lambda (`DashboardAPI`) |
+| Frontend | S3 (static site) → CloudFront |
+| Storage | Same DynamoDB table used by the Event Processor |
+
+The frontend is a zero-dependency vanilla JS application served via CloudFront, with the API proxied through the same distribution under `/api/*`.
+
+Admin users are created from the `dashboard_admin_emails` variable and receive a temporary password by email on first deploy.
+
 ## Infrastructure
 
 The infrastructure is defined using Terraform in the `/terraform` directory. Key components include:
 
 - Lambda functions with appropriate IAM roles and permissions
-- SQS queue for alevents message handling
-- S3 bucket for Sigma rules (optionally for Cloudtrail)
-- DynamoDB table for event correlation (optional)
+- SQS queue for alert message handling
+- S3 bucket for Sigma rules (optionally for CloudTrail)
+- DynamoDB table for event correlation and dashboard history (optional)
 - CloudWatch Log groups for Lambda logging
 - SNS topics for notifications (optional)
+- Cognito User Pool, API Gateway, CloudFront and S3 static site for the dashboard (optional)
 
 Infrastructure is parameterized through Terraform variables in `terraform.tfvars.json`, allowing for easy customization of:
 
@@ -363,17 +393,34 @@ For an account with not much traffic costs should be under $10 month.
 
 This repository is a reusable Terraform module to deploy the TrailAlerts serverless stack (Lambdas, SQS, SNS/SES, optional DynamoDB, S3, IAM).
 
-Quick usage (minimal):
+Quick usage (minimal — alerts only, no dashboard):
 
 ```hcl
 module "trailalerts" {
   source  = "adanalvarez/trailalerts/aws"
   version = "0.2.2"
 
-  aws_region    = "us-west-2"
+  aws_region     = "us-west-2"
   email_endpoint = "alerts@example.com"
 }
 ```
+
+With the optional dashboard:
+
+```hcl
+module "trailalerts" {
+  source  = "adanalvarez/trailalerts/aws"
+  version = "0.2.2"
+
+  aws_region     = "us-west-2"
+  email_endpoint = "alerts@example.com"
+
+  enable_dashboard       = true
+  dashboard_admin_emails = ["admin@example.com"]
+}
+```
+
+After `terraform apply`, the dashboard URL is available in the `dashboard_url` output. Admin users receive a temporary password by email.
 
 If you already have a CloudTrail bucket, set `create_cloudtrail = false` and provide `existing_cloudtrail_bucket_name`.
 
@@ -410,6 +457,9 @@ Notes:
 | <a name="module_s3"></a> [s3](#module\_s3) | ./modules/s3 | n/a |
 | <a name="module_sns"></a> [sns](#module\_sns) | ./modules/sns | n/a |
 | <a name="module_sqs"></a> [sqs](#module\_sqs) | ./modules/sqs | n/a |
+| <a name="module_cognito"></a> [cognito](#module\_cognito) | ./modules/cognito | n/a |
+| <a name="module_dashboard_api"></a> [dashboard\_api](#module\_dashboard\_api) | ./modules/dashboard-api | n/a |
+| <a name="module_dashboard_frontend"></a> [dashboard\_frontend](#module\_dashboard\_frontend) | ./modules/dashboard-frontend | n/a |
 
 ## Resources
 
@@ -437,6 +487,8 @@ Notes:
 | <a name="input_ses_identities"></a> [ses\_identities](#input\_ses\_identities) | List of SES identities to verify and use for email notifications | `list(string)` | `[]` | no |
 | <a name="input_source_email"></a> [source\_email](#input\_source\_email) | Email address to use as the source for email notifications | `string` | `""` | no |
 | <a name="input_vpnapi_key"></a> [vpnapi\_key](#input\_vpnapi\_key) | API key for VPN service integration | `string` | `""` | no |
+| <a name="input_enable_dashboard"></a> [enable\_dashboard](#input\_enable\_dashboard) | Whether to create the web dashboard (Cognito, API Gateway, Lambda, S3, CloudFront) | `bool` | `false` | no |
+| <a name="input_dashboard_admin_emails"></a> [dashboard\_admin\_emails](#input\_dashboard\_admin\_emails) | Email addresses created as admin users in the dashboard Cognito User Pool | `list(string)` | `[]` | no |
 
 ## Outputs
 
@@ -444,4 +496,7 @@ Notes:
 |------|-------------|
 | <a name="output_trailalerts_cloudtrail_analyzer_log_group_arn"></a> [trailalerts\_cloudtrail\_analyzer\_log\_group\_arn](#output\_trailalerts\_cloudtrail\_analyzer\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the CloudTrail Analyzer Lambda function |
 | <a name="output_trailalerts_event_processor_log_group_arn"></a> [trailalerts\_event\_processor\_log\_group\_arn](#output\_trailalerts\_event\_processor\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the Event Processor Lambda function |
+| <a name="output_dashboard_url"></a> [dashboard\_url](#output\_dashboard\_url) | URL to access the TrailAlerts dashboard (only when enable\_dashboard is true) |
+| <a name="output_dashboard_api_endpoint"></a> [dashboard\_api\_endpoint](#output\_dashboard\_api\_endpoint) | API Gateway endpoint for the dashboard API (only when enable\_dashboard is true) |
+| <a name="output_dashboard_cognito_user_pool_id"></a> [dashboard\_cognito\_user\_pool\_id](#output\_dashboard\_cognito\_user\_pool\_id) | Cognito User Pool ID for the dashboard (only when enable\_dashboard is true) |
 <!-- END_TF_DOCS -->

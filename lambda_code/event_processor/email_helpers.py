@@ -1,8 +1,34 @@
 import boto3
 from botocore.exceptions import ClientError
+import html
 import logging
 import os
 from typing import List, Dict, Any
+
+
+def _escape_text(value: Any) -> str:
+    """Safely escape values rendered into the HTML email."""
+    return html.escape(str(value if value is not None else "N/A"))
+
+
+def _render_detail_row(label: str, value: Any, value_class: str = "value") -> str:
+    """Render a dashboard-style key/value row for the email template."""
+    return f"""
+        <div class="detail-row">
+            <div class="detail-label">{html.escape(label)}</div>
+            <div class="{value_class}">{_escape_text(value)}</div>
+        </div>
+    """
+
+
+def _render_detail_row_html(label: str, value_html: str, value_class: str = "value") -> str:
+    """Render a key/value row whose value is already safe HTML."""
+    return f"""
+        <div class="detail-row">
+            <div class="detail-label">{html.escape(label)}</div>
+            <div class="{value_class}">{value_html}</div>
+        </div>
+    """
 
 
 def generate_email_html(style: str, sections: List[str]) -> str:
@@ -18,23 +44,37 @@ def generate_email_html(style: str, sections: List[str]) -> str:
     """
     try:
         # Filter out None or empty sections and join them
-        valid_sections = [section for section in sections if section]
+        valid_sections = [section for section in sections if section and section.strip()]
         combined_sections = "".join(valid_sections)
-        
+
         html_template = f"""
             <!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>CloudTrail Alert</title>
+                <title>TrailAlerts CloudTrail Alert</title>
                 {style}
             </head>
             <body>
-            <div class="container">
-                <div class="header">CloudTrail Alert</div>
-                {combined_sections}
-            </div>
+                <div class="email-shell">
+                    <div class="container">
+                        <div class="header">
+                            <div class="header-kicker">TrailAlerts</div>
+                            <div class="header-title">CloudTrail Alert</div>
+                        </div>
+                        <div class="intro">
+                            <div class="intro-title">Security event summary</div>
+                            <div class="intro-text">
+                                A detection in your AWS environment matched one of your monitoring rules. Review the details below and validate the related CloudTrail activity.
+                            </div>
+                        </div>
+                        {combined_sections}
+                        <div class="footer">
+                            TrailAlerts notification • Review the dashboard for full event history, filtering, and investigation context.
+                        </div>
+                    </div>
+                </div>
             </body>
             </html>
         """
@@ -71,10 +111,10 @@ def generate_correlation_section(correlated_events: List[Dict[str, Any]]) -> str
     for event in correlated_events:
         event_html = f"""
             <div class="correlated-event">
-                <div>Rule: <span class="value">{event.get('sigmaRuleTitle', 'N/A')}</span></div>
-                <div>Time: <span class="value">{event.get('timestamp', 'N/A')}</span></div>
-                <div>Actor: <span class="value">{event.get('actor', 'N/A')}</span></div>
-                <div>Target: <span class="value">{event.get('target', 'N/A')}</span></div>
+                {_render_detail_row("Rule", event.get("sigmaRuleTitle", "N/A"))}
+                {_render_detail_row("Time", event.get("timestamp", "N/A"))}
+                {_render_detail_row("Actor", event.get("actor", "N/A"))}
+                {_render_detail_row("Target", event.get("target", "N/A"))}
             </div>
         """
         events_html.append(event_html)
@@ -82,7 +122,7 @@ def generate_correlation_section(correlated_events: List[Dict[str, Any]]) -> str
     return f"""
         <div class="section">
             <div class="section-title">Correlated Events</div>
-            <div class="correlation-warning">⚠️ This alert was escalated due to correlation with previous events</div>
+            <div class="correlation-warning">Escalated because related activity was identified in the same investigation window.</div>
             {"".join(events_html)}
         </div>
     """
@@ -112,13 +152,13 @@ def generate_threshold_section(threshold_info: Dict[str, Any]) -> str:
     return f"""
         <div class="section">
             <div class="section-title">Threshold Exceeded</div>
-            <div class="threshold-warning">⚠️ This alert was escalated due to multiple occurrences of the same event</div>
+            <div class="threshold-warning">Escalated because this activity exceeded the configured alert threshold.</div>
             <div class="threshold-details">
-                <div>Rule: <span class="value">{rule_title}</span></div>
-                <div>Actor: <span class="value">{actor}</span></div>
-                <div>Event Count: <span class="value">{event_count}</span></div>
-                <div>Threshold: <span class="value">{threshold_count}</span></div>
-                <div>Time Window: <span class="value">{window_minutes} minutes</span></div>
+                {_render_detail_row("Rule", rule_title)}
+                {_render_detail_row("Actor", actor)}
+                {_render_detail_row("Event Count", event_count)}
+                {_render_detail_row("Threshold", threshold_count)}
+                {_render_detail_row("Time Window", f"{window_minutes} minutes")}
             </div>
         </div>
     """
@@ -134,28 +174,49 @@ def generate_sigma_rule_section(rule: Dict[str, Any]) -> str:
     Returns:
         str: HTML formatted section with rule information
     """
+    if not rule:
+        return ""
+
     sections = []
-    
-    # Add rule information
+
     if rule.get("title"):
-        sections.append(f"<div>Title: <span class='value'>{rule['title']}</span></div>")
-    if rule.get("id"):
-        sections.append(f"<div>Rule ID: <span class='value'>{rule['id']}</span></div>")
+        sections.append(_render_detail_row("Rule", rule["title"]))
     if rule.get("level"):
-        severity_class = f"severity-{rule['level'].lower()}"
-        sections.append(f"<div>Severity: <span class='value {severity_class}'>{rule['level'].upper()}</span></div>")
+        severity_level = str(rule["level"]).lower()
+        severity_badge = (
+            f"<span class='badge severity-{severity_level}'>"
+            f"{_escape_text(str(rule['level']).upper())}</span>"
+        )
+        sections.append(_render_detail_row_html("Severity", severity_badge))
+    if rule.get("id"):
+        sections.append(_render_detail_row("Rule ID", rule["id"]))
     if rule.get("description"):
-        sections.append(f"<div>Description: <span class='value'>{rule['description']}</span></div>")
+        sections.append(_render_detail_row("Description", rule["description"]))
     if rule.get("author"):
-        sections.append(f"<div>Author: <span class='value'>{rule['author']}</span></div>")
+        sections.append(_render_detail_row("Author", rule["author"]))
     if rule.get("references"):
-        refs = "</li><li>".join(rule['references'])
-        sections.append(f"<div>References: <ul><li>{refs}</li></ul></div>")
+        refs = []
+        for reference in rule["references"]:
+            escaped_ref = _escape_text(reference)
+            safe_href = html.escape(str(reference), quote=True)
+            refs.append(
+                f"<li><a href='{safe_href}' target='_blank' rel='noopener noreferrer'>{escaped_ref}</a></li>"
+            )
+        sections.append(
+            f"""
+            <div class="detail-row">
+                <div class="detail-label">References</div>
+                <ul>{''.join(refs)}</ul>
+            </div>
+            """
+        )
 
     return f"""
         <div class="section">
-            <div class="section-title">Sigma Rule Information</div>
-            {"".join(sections)}
+            <div class="section-title">Alert Summary</div>
+            <div class="section-body">
+                {"".join(sections)}
+            </div>
         </div>
     """
 
@@ -163,7 +224,7 @@ def generate_sigma_rule_section(rule: Dict[str, Any]) -> str:
 def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str, 
                   destination_email: str, rule: Dict[str, Any],
                   correlated_events: List[Dict[str, Any]] = None,
-                  threshold_info: Dict[str, Any] = None) -> None:
+                  threshold_info: Dict[str, Any] = None) -> bool:
     """
     Sends an email using AWS SES.
     
@@ -175,6 +236,9 @@ def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str,
         rule: The Sigma rule that triggered the alert
         correlated_events: Optional list of correlated events
         threshold_info: Optional threshold information
+
+    Returns:
+        bool: True when SES accepted the email request, False otherwise
     """
     ses_client = boto3.client("ses")
     rule_title = rule.get("title", "Unknown Rule")
@@ -199,13 +263,15 @@ def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str,
             },
         )
         logging.info(f"Email sent: {response['MessageId']}")
+        return True
     except ClientError as e:
         logging.error(f"Failed to send email: {str(e)}")
+        return False
 
 def sns_send_email(sns_topic: str, records: Dict[str, Any], 
                   correlated_events: List[Dict[str, Any]] = None,
                   threshold_info: Dict[str, Any] = None,
-                  rule_metadata: Dict[str, Any] = None) -> None:
+                  rule_metadata: Dict[str, Any] = None) -> bool:
     """
     Sends a message to an SNS topic.
     
@@ -215,6 +281,9 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
         correlated_events: Optional list of correlated events
         threshold_info: Optional dictionary containing threshold information
         rule_metadata: Optional rule metadata containing severity information
+
+    Returns:
+        bool: True when SNS accepted the publish request, False otherwise
     """
     sns_client = boto3.client("sns")
     
@@ -274,5 +343,7 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
             Subject=subject[:100]
         )
         logging.info(f"SNS notification sent to {sns_topic}")
+        return True
     except ClientError as e:
         logging.error(f"Failed to send SNS notification: {str(e)}")
+        return False

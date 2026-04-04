@@ -83,3 +83,82 @@ module "lambda_cloudtrail_analyzer" {
   trailalerts_detection_layer_arn = module.lambda_layer.trailalerts_detection_layer_arn
   trailalerts_rules_bucket        = module.s3.trailalerts_rules_bucket_name
 }
+
+# ---------------------------------------------------------------------------
+# Dashboard (optional) — Cognito + API Gateway + Lambda + S3/CloudFront
+# ---------------------------------------------------------------------------
+
+module "cognito" {
+  source = "./modules/cognito"
+  count  = var.enable_dashboard ? 1 : 0
+
+  project                = var.project
+  environment            = var.environment
+  dashboard_admin_emails = var.dashboard_admin_emails
+
+  # Placeholder URLs — updated by null_resource after CloudFront is created
+  callback_urls = ["https://placeholder.invalid/"]
+  logout_urls   = ["https://placeholder.invalid/"]
+}
+
+# Update Cognito client callback URLs with the real CloudFront domain after creation.
+# This avoids a circular dependency between the Cognito and CloudFront modules.
+resource "null_resource" "update_cognito_callbacks" {
+  count = var.enable_dashboard ? 1 : 0
+
+  triggers = {
+    cloudfront_domain = module.dashboard_frontend[0].cloudfront_distribution_domain
+    client_id         = module.cognito[0].spa_client_id
+    user_pool_id      = module.cognito[0].user_pool_id
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOF
+      aws cognito-idp update-user-pool-client \
+        --region "${var.aws_region}" \
+        --user-pool-id "${module.cognito[0].user_pool_id}" \
+        --client-id "${module.cognito[0].spa_client_id}" \
+        --callback-urls "https://${module.dashboard_frontend[0].cloudfront_distribution_domain}/" \
+        --logout-urls "https://${module.dashboard_frontend[0].cloudfront_distribution_domain}/" \
+        --allowed-o-auth-flows code \
+        --allowed-o-auth-scopes openid email profile \
+        --supported-identity-providers COGNITO \
+        --allowed-o-auth-flows-user-pool-client \
+        --explicit-auth-flows ALLOW_REFRESH_TOKEN_AUTH ALLOW_USER_SRP_AUTH ALLOW_USER_PASSWORD_AUTH \
+        --prevent-user-existence-errors ENABLED \
+        --access-token-validity 1 \
+        --id-token-validity 1 \
+        --refresh-token-validity 30 \
+        --token-validity-units '{"AccessToken":"hours","IdToken":"hours","RefreshToken":"days"}'
+    EOF
+  }
+}
+
+module "dashboard_api" {
+  source = "./modules/dashboard-api"
+  count  = var.enable_dashboard ? 1 : 0
+
+  project                        = var.project
+  environment                    = var.environment
+  cloudwatch_logs_retention_days = var.cloudwatch_logs_retention_days
+  rules_bucket_name              = module.s3.trailalerts_rules_bucket_name
+  rules_bucket_arn               = module.s3.trailalerts_rules_bucket_arn
+  dynamodb_table_name            = var.correlation_enabled ? module.dynamodb[0].security_events_table_name : ""
+  dynamodb_table_arn             = var.correlation_enabled ? module.dynamodb[0].security_events_table_arn : ""
+  cognito_user_pool_arn          = module.cognito[0].user_pool_arn
+  cognito_user_pool_endpoint     = module.cognito[0].user_pool_endpoint
+  cognito_spa_client_id          = module.cognito[0].spa_client_id
+  lambda_layer_arn               = module.lambda_layer.trailalerts_detection_layer_arn
+}
+
+module "dashboard_frontend" {
+  source = "./modules/dashboard-frontend"
+  count  = var.enable_dashboard ? 1 : 0
+
+  project               = var.project
+  environment           = var.environment
+  api_endpoint          = module.dashboard_api[0].api_endpoint
+  cognito_user_pool_id  = module.cognito[0].user_pool_id
+  cognito_spa_client_id = module.cognito[0].spa_client_id
+  cognito_domain        = module.cognito[0].user_pool_domain
+}
