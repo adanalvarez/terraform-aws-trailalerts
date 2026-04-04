@@ -199,7 +199,7 @@
                 <div class="table-toolbar">
                     <strong>Alert History</strong>
                     <input type="text" class="filter-input" id="alert-rule-filter" placeholder="Search alerts..." oninput="debouncedRenderAlerts()" autocomplete="off" />
-                    <select class="filter-select" id="alert-severity-filter">
+                    <select class="filter-select" id="alert-severity-filter" onchange="loadAlerts()">
                         <option value="">All severities</option>
                         <option value="critical">Critical</option>
                         <option value="high">High</option>
@@ -207,7 +207,7 @@
                         <option value="low">Low</option>
                         <option value="info">Info</option>
                     </select>
-                    <select class="filter-select" id="alert-hours-filter">
+                    <select class="filter-select" id="alert-hours-filter" onchange="loadAlerts()">
                         <option value="1">Last 1h</option>
                         <option value="6">Last 6h</option>
                         <option value="24" selected>Last 24h</option>
@@ -217,20 +217,23 @@
                     </select>
                     <button class="btn btn-secondary btn-sm" onclick="loadAlerts()">Search</button>
                 </div>
-                <table>
-                    <thead><tr>
-                        <th class="sortable" data-sort="timestamp" onclick="sortAlerts(this,'timestamp')">Time</th>
-                        <th class="sortable" data-sort="sigmaRuleTitle" onclick="sortAlerts(this,'sigmaRuleTitle')">Rule</th>
-                        <th class="sortable" data-sort="severity" onclick="sortAlerts(this,'severity')">Severity</th>
-                        <th class="sortable" data-sort="eventName" onclick="sortAlerts(this,'eventName')">Event</th>
-                        <th class="sortable" data-sort="actor" onclick="sortAlerts(this,'actor')">Actor</th>
-                        <th class="sortable" data-sort="sourceIp" onclick="sortAlerts(this,'sourceIp')">Source IP</th>
-                        <th>Actions</th>
-                    </tr></thead>
-                    <tbody id="alerts-body"></tbody>
-                </table>
-                <div id="alerts-pagination" style="padding:1rem; text-align:center; display:none;">
-                    <button class="btn btn-secondary btn-sm" onclick="loadMoreAlerts()">Load More</button>
+                <div class="table-scroll">
+                    <table style="min-width:860px; table-layout:fixed;">
+                        <thead><tr>
+                            <th class="sortable" style="width:145px;" data-sort="timestamp" onclick="sortAlerts(this,'timestamp')">Time</th>
+                            <th class="sortable" data-sort="sigmaRuleTitle" onclick="sortAlerts(this,'sigmaRuleTitle')">Rule</th>
+                            <th class="sortable" style="width:100px;" data-sort="severity" onclick="sortAlerts(this,'severity')">Severity</th>
+                            <th class="sortable" style="width:155px;" data-sort="eventName" onclick="sortAlerts(this,'eventName')">Event</th>
+                            <th class="sortable" style="width:180px;" data-sort="actor" onclick="sortAlerts(this,'actor')">Actor</th>
+                            <th class="sortable" style="width:125px;" data-sort="sourceIp" onclick="sortAlerts(this,'sourceIp')">Source IP</th>
+                            <th style="width:80px;">Actions</th>
+                        </tr></thead>
+                        <tbody id="alerts-body"></tbody>
+                    </table>
+                </div>
+                <div id="alerts-pagination" style="padding:0.75rem 1.25rem; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--border-light);">
+                    <span id="alerts-count" style="font-size:13px; color:var(--text-muted);"></span>
+                    <button id="alerts-load-more" class="btn btn-secondary btn-sm" onclick="loadMoreAlerts()" style="display:none;">Load More Alerts</button>
                 </div>
             </div>
         </div>

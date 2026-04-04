@@ -154,6 +154,7 @@ body {
     overflow: hidden;
     box-shadow: var(--shadow);
 }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-toolbar {
     display: flex;
     align-items: center;

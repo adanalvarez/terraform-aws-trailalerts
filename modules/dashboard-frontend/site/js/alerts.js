@@ -41,8 +41,8 @@ async function loadAlerts(append) {
         alertsCache     = append ? alertsCache.concat(data.alerts) : data.alerts;
         alertsNextToken = data.nextToken || null;
 
-        var hasMore = !!alertsNextToken && data.alerts.length > 0;
-        document.getElementById('alerts-pagination').style.display = hasMore ? '' : 'none';
+        var loadMoreBtn = document.getElementById('alerts-load-more');
+        loadMoreBtn.style.display = (alertsNextToken && data.alerts.length > 0) ? '' : 'none';
 
         renderAlertsTable();
     } catch (e) {
@@ -101,6 +101,9 @@ function renderAlertsTable() {
     tbody.innerHTML = '';
     if (filtered.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No alerts found for the selected filters</td></tr>';
+        document.getElementById('alerts-count').textContent = alertsCache.length > 0
+            ? '0 alerts matching search (from ' + alertsCache.length + ' loaded)'
+            : 'No alerts';
         return;
     }
 
@@ -108,14 +111,18 @@ function renderAlertsTable() {
         var tr = document.createElement('tr');
         tr.innerHTML =
             '<td style="white-space:nowrap;">' + esc(formatTime(a.timestamp)) + '</td>' +
-            '<td>' + esc(a.sigmaRuleTitle || '') + '</td>' +
+            '<td title="' + escAttr(a.sigmaRuleTitle || '') + '" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.sigmaRuleTitle || '') + '</td>' +
             '<td><span class="badge badge-' + (a.severity || 'info') + '">' + esc(a.severity || '?') + '</span></td>' +
-            '<td>' + esc(a.eventName || '') + '</td>' +
-            '<td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.actor || '') + '</td>' +
+            '<td title="' + escAttr(a.eventName || '') + '" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.eventName || '') + '</td>' +
+            '<td title="' + escAttr(a.actor || '') + '" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.actor || '') + '</td>' +
             '<td>' + esc(a.sourceIp || '') + '</td>' +
             '<td><button class="btn btn-secondary btn-sm" onclick="viewAlertDetail(\'' + escAttr(a.pk) + '\',\'' + escAttr(a.sk) + '\')">Detail</button></td>';
         tbody.appendChild(tr);
     });
+
+    var countEl = document.getElementById('alerts-count');
+    countEl.textContent = filtered.length + ' alert' + (filtered.length !== 1 ? 's' : '') +
+        (filtered.length < alertsCache.length ? ' (filtered from ' + alertsCache.length + ')' : '');
 }
 
 function loadMoreAlerts() {
