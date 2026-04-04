@@ -32,6 +32,7 @@ async function loadAlerts(append) {
 
     try {
         var url = '/api/alerts?hours=' + hours + '&limit=50';
+        if (ruleSearch) url += '&rule=' + encodeURIComponent(ruleSearch);
         if (severity) url += '&severity=' + encodeURIComponent(severity);
         if (alertsNextToken) url += '&nextToken=' + encodeURIComponent(alertsNextToken);
 

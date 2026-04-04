@@ -121,15 +121,18 @@ def _collect_alert_pages(fetch_page, base_params: dict, limit: int) -> tuple[lis
 
     DynamoDB applies filters after reading a page, so a single query can return
     fewer matching items than requested even when more recent matches exist.
+    Use a broader internal page size than the UI display limit so busy
+    deployments don't need dozens of tiny round-trips before any rows appear.
     """
     items = []
     scanned_count = 0
     last_evaluated_key = base_params.get("ExclusiveStartKey")
     request_params = dict(base_params)
+    page_size = max(50, min(500, limit * 5))
 
     while len(items) < limit:
         page_params = dict(request_params)
-        page_params["Limit"] = max(1, limit - len(items))
+        page_params["Limit"] = page_size
 
         response = fetch_page(**page_params)
         page_items = response.get("Items", [])
@@ -283,19 +286,19 @@ def get_alerts(params: dict) -> dict:
                 query_params["ExpressionAttributeValues"][":sev"] = severity_filter
         else:
             query_params = {
-                "KeyConditionExpression": "pk = :pk",
+                "IndexName": "recentAlertsIndex",
+                "KeyConditionExpression": "pk = :pk AND #ts >= :start",
                 "ExpressionAttributeNames": {"#ts": "timestamp"},
                 "ExpressionAttributeValues": {
                     ":pk": "EVENT",
                     ":start": start_time,
                 },
                 "ProjectionExpression": _ALERT_SUMMARY_PROJECTION,
-                "FilterExpression": "#ts >= :start",
                 "ScanIndexForward": False,
             }
 
             if severity_filter:
-                query_params["FilterExpression"] += " AND severity = :sev"
+                query_params["FilterExpression"] = "severity = :sev"
                 query_params["ExpressionAttributeValues"][":sev"] = severity_filter
 
         if exclusive_start_key:
@@ -354,8 +357,8 @@ def get_alert_stats(params: dict) -> dict:
         start_time = (now - timedelta(hours=hours)).isoformat()
 
         query_params = {
-            "KeyConditionExpression": "pk = :pk",
-            "FilterExpression": "#ts >= :start",
+            "IndexName": "recentAlertsIndex",
+            "KeyConditionExpression": "pk = :pk AND #ts >= :start",
             "ExpressionAttributeNames": {"#ts": "timestamp"},
             "ExpressionAttributeValues": {
                 ":pk": "EVENT",

@@ -61,7 +61,9 @@ def test_get_alerts_uses_recent_first_query_for_dashboard(monkeypatch, decode_bo
     assert len(body["alerts"]) == 2
     assert fake_table.scan_calls == []
     assert len(fake_table.query_calls) == 1
+    assert fake_table.query_calls[0]["IndexName"] == "recentAlertsIndex"
     assert fake_table.query_calls[0]["ExpressionAttributeValues"][":pk"] == "EVENT"
+    assert "#ts >= :start" in fake_table.query_calls[0]["KeyConditionExpression"]
     assert fake_table.query_calls[0]["ScanIndexForward"] is False
 
 
@@ -99,4 +101,30 @@ def test_get_alerts_continues_loading_until_limit_is_filled(monkeypatch, decode_
     assert response["statusCode"] == 200
     assert len(body["alerts"]) == 2
     assert len(fake_table.query_calls) == 2
+    assert fake_table.query_calls[0]["Limit"] > 2
     assert body["nextToken"] == json.dumps({"pk": "EVENT", "sk": "2026-04-04T11:59:00#2"})
+
+
+def test_get_alert_stats_uses_event_query_instead_of_scanning_all_items(monkeypatch, decode_body):
+    fake_table = FakeTable(
+        pages=[
+            {
+                "Items": [
+                    {"pk": "EVENT", "timestamp": "2026-04-04T12:00:00", "severity": "high", "sigmaRuleTitle": "Suspicious Console Login"},
+                    {"pk": "EVENT", "timestamp": "2026-04-04T11:00:00", "severity": "medium", "sigmaRuleTitle": "IAM User Created"},
+                ],
+                "ScannedCount": 2,
+            }
+        ]
+    )
+    monkeypatch.setattr(dashboard_api, "_get_table", lambda: fake_table)
+
+    response = dashboard_api.get_alert_stats({"hours": "24"})
+    body = decode_body(response)
+
+    assert response["statusCode"] == 200
+    assert body["totalAlerts"] == 2
+    assert len(fake_table.query_calls) == 1
+    assert fake_table.query_calls[0]["IndexName"] == "recentAlertsIndex"
+    assert fake_table.query_calls[0]["ExpressionAttributeValues"][":pk"] == "EVENT"
+    assert "#ts >= :start" in fake_table.query_calls[0]["KeyConditionExpression"]
