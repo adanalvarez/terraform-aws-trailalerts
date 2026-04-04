@@ -109,10 +109,14 @@ function escAttr(str) {
 // Formatting
 // -------------------------------------------------------
 
-/** Format an ISO timestamp to the user's locale string. */
+/** Format an ISO timestamp to a compact locale string. */
 function formatTime(ts) {
     if (!ts) return '';
-    try { return new Date(ts).toLocaleString(); } catch (_) { return ts; }
+    try {
+        var d = new Date(ts);
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+               d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    } catch (_) { return ts; }
 }
 
 // -------------------------------------------------------

@@ -218,15 +218,15 @@
                     <button class="btn btn-secondary btn-sm" onclick="loadAlerts()">Search</button>
                 </div>
                 <div class="table-scroll">
-                    <table style="min-width:860px; table-layout:fixed;">
+                    <table>
                         <thead><tr>
-                            <th class="sortable" style="width:145px;" data-sort="timestamp" onclick="sortAlerts(this,'timestamp')">Time</th>
-                            <th class="sortable" data-sort="sigmaRuleTitle" onclick="sortAlerts(this,'sigmaRuleTitle')">Rule</th>
-                            <th class="sortable" style="width:100px;" data-sort="severity" onclick="sortAlerts(this,'severity')">Severity</th>
-                            <th class="sortable" style="width:155px;" data-sort="eventName" onclick="sortAlerts(this,'eventName')">Event</th>
-                            <th class="sortable" style="width:180px;" data-sort="actor" onclick="sortAlerts(this,'actor')">Actor</th>
-                            <th class="sortable" style="width:125px;" data-sort="sourceIp" onclick="sortAlerts(this,'sourceIp')">Source IP</th>
-                            <th style="width:80px;">Actions</th>
+                            <th class="sortable" onclick="sortAlerts(this,'timestamp')">Time</th>
+                            <th class="sortable" onclick="sortAlerts(this,'sigmaRuleTitle')">Rule</th>
+                            <th class="sortable" onclick="sortAlerts(this,'severity')">Severity</th>
+                            <th class="sortable" onclick="sortAlerts(this,'eventName')">Event</th>
+                            <th class="sortable" onclick="sortAlerts(this,'actor')">Actor</th>
+                            <th class="sortable" onclick="sortAlerts(this,'sourceIp')">Source IP</th>
+                            <th>Actions</th>
                         </tr></thead>
                         <tbody id="alerts-body"></tbody>
                     </table>

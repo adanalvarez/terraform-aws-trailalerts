@@ -177,6 +177,8 @@ th {
 }
 td { padding: 12px 20px; font-size: 14px; border-top: 1px solid var(--border-light); color: var(--text-body); }
 tr:hover td { background: rgba(23, 162, 184, 0.05); }
+td.cell-truncate { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.cell-nowrap { white-space: nowrap; }
 
 /* ── Badges ──────────────────────────────────────────── */
 .badge {
@@ -239,11 +241,11 @@ textarea.yaml-editor:focus { outline: none; box-shadow: inset 0 0 0 2px rgba(23,
 .filter-input { min-width: 180px; }
 
 /* ── Sortable Headers ────────────────────────────────── */
-th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 28px; }
+th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 24px; }
 th.sortable:hover { background: var(--deep-cyan); }
-th.sortable::after { content: '⇅'; position: absolute; right: 8px; opacity: 0.4; font-size: 10px; }
-th.sortable.asc::after { content: '▲'; opacity: 0.9; }
-th.sortable.desc::after { content: '▼'; opacity: 0.9; }
+th.sortable::after { content: ''; position: absolute; right: 8px; top: 50%; width: 0; height: 0; transform: translateY(-50%); border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid rgba(255,255,255,0.35); border-bottom: none; }
+th.sortable.asc::after { border-top: none; border-bottom: 5px solid #fff; }
+th.sortable.desc::after { border-top: 5px solid #fff; border-bottom: none; }
 
 /* ── Modal ───────────────────────────────────────────── */
 .modal-overlay {

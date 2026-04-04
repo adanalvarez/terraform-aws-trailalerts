@@ -110,13 +110,13 @@ function renderAlertsTable() {
     filtered.forEach(function (a) {
         var tr = document.createElement('tr');
         tr.innerHTML =
-            '<td style="white-space:nowrap;">' + esc(formatTime(a.timestamp)) + '</td>' +
-            '<td title="' + escAttr(a.sigmaRuleTitle || '') + '" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.sigmaRuleTitle || '') + '</td>' +
-            '<td><span class="badge badge-' + (a.severity || 'info') + '">' + esc(a.severity || '?') + '</span></td>' +
-            '<td title="' + escAttr(a.eventName || '') + '" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.eventName || '') + '</td>' +
-            '<td title="' + escAttr(a.actor || '') + '" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(a.actor || '') + '</td>' +
-            '<td>' + esc(a.sourceIp || '') + '</td>' +
-            '<td><button class="btn btn-secondary btn-sm" onclick="viewAlertDetail(\'' + escAttr(a.pk) + '\',\'' + escAttr(a.sk) + '\')">Detail</button></td>';
+            '<td class="cell-nowrap">' + esc(formatTime(a.timestamp)) + '</td>' +
+            '<td class="cell-truncate" title="' + escAttr(a.sigmaRuleTitle || '') + '">' + esc(a.sigmaRuleTitle || '') + '</td>' +
+            '<td class="cell-nowrap"><span class="badge badge-' + (a.severity || 'info') + '">' + esc(a.severity || '?') + '</span></td>' +
+            '<td class="cell-truncate" title="' + escAttr(a.eventName || '') + '">' + esc(a.eventName || '') + '</td>' +
+            '<td class="cell-truncate" title="' + escAttr(a.actor || '') + '">' + esc(a.actor || '') + '</td>' +
+            '<td class="cell-truncate" title="' + escAttr(a.sourceIp || '') + '">' + esc(a.sourceIp || '') + '</td>' +
+            '<td class="cell-nowrap"><button class="btn btn-secondary btn-sm" onclick="viewAlertDetail(\'' + escAttr(a.pk) + '\',\'' + escAttr(a.sk) + '\')">Detail</button></td>';
         tbody.appendChild(tr);
     });
 
