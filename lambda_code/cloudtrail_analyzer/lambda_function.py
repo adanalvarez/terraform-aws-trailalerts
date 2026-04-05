@@ -191,6 +191,11 @@ def reload_sigma_rules_if_needed() -> None:
     """Reload Sigma rules if cache is empty or bucket content changed."""
     global sigma_rules_cache, sigma_rules_etag_hash, rule_index, wildcard_rules
 
+    previous_cache = sigma_rules_cache
+    previous_hash = sigma_rules_etag_hash
+    previous_index = rule_index
+    previous_wildcards = wildcard_rules
+
     try:
         current_etag_hash = compute_s3_files_hash(TRAILALERTS_BUCKET)
         if sigma_rules_cache is None or sigma_rules_etag_hash != current_etag_hash:
