@@ -109,10 +109,14 @@ function renderAlertsTable() {
 
     filtered.forEach(function (a) {
         var tr = document.createElement('tr');
+        var severityCell = '<span class="badge badge-' + (a.severity || 'info') + '">' + esc(a.severity || '?') + '</span>';
+        if (a.correlatedWith) {
+            severityCell += ' <span class="badge badge-correlated" title="Correlated with: ' + escAttr(a.correlatedWith) + '">&#x1f517;</span>';
+        }
         tr.innerHTML =
             '<td class="cell-nowrap">' + esc(formatTime(a.timestamp)) + '</td>' +
             '<td class="cell-truncate" title="' + escAttr(a.sigmaRuleTitle || '') + '">' + esc(a.sigmaRuleTitle || '') + '</td>' +
-            '<td class="cell-nowrap"><span class="badge badge-' + (a.severity || 'info') + '">' + esc(a.severity || '?') + '</span></td>' +
+            '<td class="cell-nowrap">' + severityCell + '</td>' +
             '<td class="cell-truncate" title="' + escAttr(a.eventName || '') + '">' + esc(a.eventName || '') + '</td>' +
             '<td class="cell-truncate" title="' + escAttr(a.actor || '') + '">' + esc(a.actor || '') + '</td>' +
             '<td class="cell-truncate" title="' + escAttr(a.sourceIp || '') + '">' + esc(a.sourceIp || '') + '</td>' +
@@ -156,6 +160,7 @@ async function viewAlertDetail(pk, sk) {
             '<div><strong>Account:</strong> ' + esc(a.accountId || '') + '</div>' +
             '<div><strong>User Agent:</strong> ' + esc(a.userAgent || '') + '</div>' +
             '</div>' +
+            (a.correlatedWith ? '<div style="background:var(--bg-secondary); border-left:3px solid var(--warning); padding:0.5rem 0.75rem; margin-bottom:1rem; border-radius:4px;"><strong>Correlated with:</strong> ' + esc(a.correlatedWith) + ' &mdash; severity was escalated because related activity was identified.</div>' : '') +
             '<h4 style="margin-bottom:0.5rem;">Raw CloudTrail Event</h4>' +
             '<pre>' + esc(rawEvent) + '</pre>';
     } catch (e) {

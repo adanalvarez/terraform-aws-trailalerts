@@ -11,7 +11,7 @@ class DynamoDBHelper:
     def __init__(self, table):
         self.table = table
 
-    def store_event(self, event: Dict[str, Any], rule: Dict[str, Any], event_type: str = "regular", max_retries: int = 3) -> None:
+    def store_event(self, event: Dict[str, Any], rule: Dict[str, Any], event_type: str = "regular", max_retries: int = 3, correlated_with: str = None) -> None:
         """
         Store event in DynamoDB with retry logic.
         
@@ -20,6 +20,7 @@ class DynamoDBHelper:
             rule: The Sigma rule metadata
             event_type: Type of event (regular, threshold, correlation)
             max_retries: Maximum number of retry attempts
+            correlated_with: Title of the correlated rule, if any
             
         Raises:
             ClientError: If all retry attempts fail
@@ -79,6 +80,9 @@ class DynamoDBHelper:
             "ttl": ttl_timestamp, 
             "eventType": event_type 
         }
+
+        if correlated_with:
+            item["correlatedWith"] = correlated_with
 
         for attempt in range(max_retries):
             try:

@@ -195,6 +195,7 @@ td.cell-nowrap { white-space: nowrap; }
 .badge-medium { background: #fffbeb; color: #b45309; }
 .badge-low { background: #f0f9ff; color: #0369a1; }
 .badge-info { background: #f0f9ff; color: #0284c7; }
+.badge-correlated { background: #fefce8; color: #a16207; cursor: help; }
 
 /* ── Editor ──────────────────────────────────────────── */
 .editor-container {
