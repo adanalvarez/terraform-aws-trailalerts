@@ -195,3 +195,100 @@ class CorrelationHelper:
                 return True
         
         return False
+
+    def is_lookfor_target(self, rule_title: str) -> bool:
+        """
+        Check if the given rule title is the lookFor target of any correlation rule.
+        
+        Args:
+            rule_title: The title of the Sigma rule
+            
+        Returns:
+            bool: True if this rule is a lookFor target, False otherwise
+        """
+        self._refresh_cache_if_needed()
+
+        if not self.correlation_rules_cache:
+            return False
+
+        for rule in self.correlation_rules_cache:
+            if rule.get('lookFor') == rule_title:
+                return True
+
+        return False
+
+    def find_reverse_correlations(self, event: Dict[str, Any], rule: Dict[str, Any], dynamodb_table) -> List[Dict[str, Any]]:
+        """
+        Reverse correlation: when the lookFor target event arrives, check if the
+        triggering event (sigmaRuleTitle) was already stored in DynamoDB.
+
+        This is the bidirectional counterpart to find_correlations(). Together they
+        ensure that regardless of which event is processed first, the correlation
+        is detected.
+
+        Args:
+            event: The CloudTrail event
+            rule: The Sigma rule metadata
+            dynamodb_table: DynamoDB table resource
+
+        Returns:
+            List of correlation matches (same format as find_correlations)
+        """
+        self._refresh_cache_if_needed()
+
+        if not self.correlation_rules_cache:
+            return []
+
+        current_rule_title = rule.get('title')
+        event_time = event.get('eventTime')
+
+        if not current_rule_title or not event_time:
+            return []
+
+        matches = []
+        for correlation_rule in self.correlation_rules_cache:
+            # Reverse direction: current event IS the lookFor target
+            if (correlation_rule.get('lookFor') == current_rule_title and
+                    correlation_rule.get('sigmaRuleTitle')):
+
+                event_datetime = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
+                window_minutes = correlation_rule.get('windowMinutes', DEFAULT_WINDOW_MINUTES)
+                window_start = (event_datetime - timedelta(minutes=window_minutes)).isoformat()
+                end_time_with_buffer = (event_datetime + timedelta(seconds=5)).isoformat()
+
+                logger.info(
+                    f"Reverse correlation check: current rule '{current_rule_title}' is lookFor target, "
+                    f"searching for triggering rule '{correlation_rule['sigmaRuleTitle']}' "
+                    f"between {window_start} and {end_time_with_buffer}"
+                )
+
+                try:
+                    response = dynamodb_table.query(
+                        IndexName='sigmaRuleTitleIndex',
+                        KeyConditionExpression='sigmaRuleTitle = :title AND #ts BETWEEN :start AND :end',
+                        ExpressionAttributeNames={'#ts': 'timestamp'},
+                        ExpressionAttributeValues={
+                            ':title': correlation_rule['sigmaRuleTitle'],
+                            ':start': window_start,
+                            ':end': end_time_with_buffer
+                        }
+                    )
+
+                    if response.get('Items'):
+                        first_event = response['Items'][0]
+                        logger.info(
+                            f"Reverse correlation found: Current rule '{current_rule_title}' at {event_time} "
+                            f"correlates with triggering rule '{correlation_rule['sigmaRuleTitle']}' at "
+                            f"{first_event.get('timestamp')} (within {window_minutes} minutes)"
+                        )
+
+                        matches.append({
+                            'rule': correlation_rule,
+                            'severity_adjustment': correlation_rule.get('severity_adjustment', 'high'),
+                            'correlated_events': response['Items']
+                        })
+
+                except Exception as e:
+                    logger.error(f"Failed to query DynamoDB for reverse correlations: {str(e)}")
+
+        return matches

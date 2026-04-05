@@ -329,9 +329,46 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
         # Regular event processing
         logger.info(f"Processing regular event for rule: {rule_metadata.get('title', 'unknown')}")
         
+        # If this regular event is a lookFor target of a correlation rule,
+        # also store it as a correlation record so the forward check from the
+        # sigmaRuleTitle side can find it via the GSI reliably.
+        if (config.get("correlation_enabled") == "true" and
+                correlation_helper and dynamodb_table and
+                correlation_helper.is_lookfor_target(rule_metadata.get('title', ''))):
+            logger.info(f"Regular event is a correlation lookFor target, storing as correlation record too")
+            dynamodb_helper.store_event(matched_event, rule_metadata, event_type="correlation")
+
         # Use global cooldown for regular events
         cooldown_minutes = global_cooldown_minutes
         logger.info(f"Using global cooldown period of {cooldown_minutes} minutes for regular rule '{rule_metadata.get('title')}'")
+
+    # Reverse correlation check: when this event is the lookFor target of a
+    # correlation rule, check if the triggering rule was already stored.
+    # This runs for ALL event types so that correlations are detected regardless
+    # of which event arrives first (bidirectional correlation).
+    if (not correlated_events and
+            config.get("correlation_enabled") == "true" and
+            correlation_helper and dynamodb_table):
+        reverse_matches = correlation_helper.find_reverse_correlations(
+            matched_event, rule_metadata, dynamodb_table
+        )
+        if reverse_matches:
+            highest_reverse = max(
+                reverse_matches,
+                key=lambda x: SEVERITY_LEVELS.get(x['severity_adjustment'], 0)
+            )
+            reverse_severity = highest_reverse['severity_adjustment']
+            # Only apply if it increases severity
+            if SEVERITY_LEVELS.get(reverse_severity, 0) > SEVERITY_LEVELS.get(current_severity, 0):
+                logger.info(
+                    f"REVERSE CORRELATION FOUND: Adjusting severity from "
+                    f"{current_severity} to {reverse_severity}"
+                )
+                current_severity = reverse_severity
+                rule_metadata['level'] = reverse_severity
+            correlated_events = highest_reverse['correlated_events']
+            if cooldown_minutes is None:
+                cooldown_minutes = global_cooldown_minutes
 
     # Always store a dashboard-visible history record using the final severity.
     # Threshold/correlation records still keep their dedicated tracking entries,
