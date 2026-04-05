@@ -251,7 +251,14 @@ class CorrelationHelper:
             if (correlation_rule.get('lookFor') == current_rule_title and
                     correlation_rule.get('sigmaRuleTitle')):
 
-                event_datetime = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
+                try:
+                    event_datetime = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
+                except ValueError:
+                    logger.warning(
+                        f"Skipping reverse correlation for rule '{current_rule_title}': "
+                        f"invalid eventTime '{event_time}'"
+                    )
+                    continue
                 window_minutes = correlation_rule.get('windowMinutes', DEFAULT_WINDOW_MINUTES)
                 window_start = (event_datetime - timedelta(minutes=window_minutes)).isoformat()
                 end_time_with_buffer = (event_datetime + timedelta(seconds=5)).isoformat()
