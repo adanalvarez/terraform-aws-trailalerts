@@ -74,7 +74,7 @@ def webhook_send(
 
     try:
         with urlopen(req, timeout=10) as resp:
-            logger.info(f"Webhook notification sent to {url} — HTTP {resp.status}")
+            logger.info(f"Webhook notification sent — HTTP {resp.status}")
             return True
     except HTTPError as exc:
         logger.error(f"Webhook request failed: HTTP {exc.code} — {exc.reason}")
