@@ -485,3 +485,158 @@ class TestCacheRefreshTTL:
             helper._refresh_cache_if_needed()
             mock_hash.assert_called_once()
             mock_load.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Deduplication tests
+# ---------------------------------------------------------------------------
+
+class TestDeduplicateEvents:
+    def test_removes_duplicate_items(self):
+        from correlation_helpers import _deduplicate_events
+        items = [
+            {"sigmaRuleTitle": "Rule B", "timestamp": "2025-01-15T10:00:00Z", "actor": "user/test", "pk": "CORRELATION#user/test"},
+            {"sigmaRuleTitle": "Rule B", "timestamp": "2025-01-15T10:00:00Z", "actor": "user/test", "pk": "EVENT"},
+        ]
+        assert len(_deduplicate_events(items)) == 1
+
+    def test_keeps_distinct_events(self):
+        from correlation_helpers import _deduplicate_events
+        items = [
+            {"sigmaRuleTitle": "Rule B", "timestamp": "2025-01-15T10:00:00Z", "actor": "user/test"},
+            {"sigmaRuleTitle": "Rule B", "timestamp": "2025-01-15T10:05:00Z", "actor": "user/test"},
+        ]
+        assert len(_deduplicate_events(items)) == 2
+
+    def test_empty_list(self):
+        from correlation_helpers import _deduplicate_events
+        assert _deduplicate_events([]) == []
+
+    def test_dedup_in_find_correlations(self):
+        """find_correlations should return deduplicated correlated events."""
+        from correlation_helpers import CorrelationHelper
+        helper = CorrelationHelper.__new__(CorrelationHelper)
+        helper.correlation_rules_cache = [
+            {"type": "correlation", "sigmaRuleTitle": "Rule A", "lookFor": "Rule B",
+             "windowMinutes": 60, "severity_adjustment": "critical"}
+        ]
+        helper.etag_hash = "cached"
+        helper.s3_client = Mock()
+        helper.bucket_name = "test"
+        helper._last_refresh_check = 0.0
+        helper._refresh_ttl_seconds = 5
+
+        table = Mock()
+        # GSI returns 2 records for the same event (correlation + regular pk)
+        table.query.return_value = {
+            "Items": [
+                {"sigmaRuleTitle": "Rule B", "timestamp": "2025-01-15T10:00:00Z", "actor": "user/test", "pk": "CORRELATION#user/test"},
+                {"sigmaRuleTitle": "Rule B", "timestamp": "2025-01-15T10:00:00Z", "actor": "user/test", "pk": "EVENT"},
+            ]
+        }
+
+        event = {"eventTime": "2025-01-15T10:30:00Z"}
+        rule = {"title": "Rule A"}
+
+        with patch.object(helper, "_refresh_cache_if_needed"):
+            matches = helper.find_correlations(event, rule, table)
+
+        assert len(matches) == 1
+        assert len(matches[0]["correlated_events"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# correlated_with stored in dashboard record
+# ---------------------------------------------------------------------------
+
+class TestCorrelatedWithInDashboardRecord:
+    def test_correlated_with_passed_to_store_event(self):
+        """When correlation is found, correlated_with should be stored in the dashboard record."""
+        module = _load_lambda_module()
+
+        module.dynamodb_table = Mock()
+        module.dynamodb_helper = Mock()
+        module.correlation_helper = Mock()
+        module.correlation_helper.has_matching_rule.return_value = False
+        module.correlation_helper.is_lookfor_target.return_value = True
+        module.correlation_helper.find_reverse_correlations.return_value = [{
+            "rule": {"sigmaRuleTitle": "Rule A", "lookFor": "Rule B"},
+            "severity_adjustment": "critical",
+            "correlated_events": [{"sigmaRuleTitle": "Rule A", "timestamp": "2025-01-15T10:00:00Z"}]
+        }]
+        module.threshold_helper = Mock()
+        module.threshold_helper.has_matching_rule.return_value = False
+
+        config = {
+            "source_email": "a@b.com",
+            "destination_email": "c@d.com",
+            "correlation_enabled": "true",
+        }
+        event = {
+            "sigmaEventSource": "CloudTrail",
+            "eventName": "AssumeRole",
+            "eventSource": "sts.amazonaws.com",
+            "eventTime": "2025-01-15T10:30:00Z",
+            "sourceIPAddress": "1.2.3.4",
+            "userIdentity": {"type": "IAMUser", "arn": "arn:aws:iam::123:user/test"},
+        }
+        rule = {"title": "Rule B", "id": "r-b", "level": "low"}
+
+        with patch.object(module.plugin_registry, "get_plugin_for_event", return_value=_plugin()), \
+             patch.object(module, "should_send_notification", return_value=True), \
+             patch.object(module, "send_notifications", return_value=True), \
+             patch.object(module, "NotificationHelper", return_value=Mock(should_send_notification=Mock(return_value=True))):
+            module.process_event(event, rule, config)
+
+        # Find the dashboard store_event call (event_type="regular")
+        regular_calls = [
+            c for c in module.dynamodb_helper.store_event.call_args_list
+            if c.kwargs.get("event_type") == "regular" or
+               (len(c.args) >= 3 and c.args[2] == "regular")
+        ]
+        assert len(regular_calls) >= 1
+        # correlated_with should be "Rule A"
+        call = regular_calls[-1]
+        assert call.kwargs.get("correlated_with") == "Rule A"
+
+    def test_no_correlated_with_when_no_correlation(self):
+        """When no correlation found, correlated_with should be None."""
+        module = _load_lambda_module()
+
+        module.dynamodb_table = Mock()
+        module.dynamodb_helper = Mock()
+        module.correlation_helper = Mock()
+        module.correlation_helper.has_matching_rule.return_value = False
+        module.correlation_helper.is_lookfor_target.return_value = False
+        module.correlation_helper.find_reverse_correlations.return_value = []
+        module.threshold_helper = Mock()
+        module.threshold_helper.has_matching_rule.return_value = False
+
+        config = {
+            "source_email": "a@b.com",
+            "destination_email": "c@d.com",
+            "correlation_enabled": "true",
+        }
+        event = {
+            "sigmaEventSource": "CloudTrail",
+            "eventName": "GetObject",
+            "eventSource": "s3.amazonaws.com",
+            "eventTime": "2025-01-15T10:30:00Z",
+            "sourceIPAddress": "1.2.3.4",
+            "userIdentity": {"type": "IAMUser", "arn": "arn:aws:iam::123:user/test"},
+        }
+        rule = {"title": "Rule X", "id": "r-x", "level": "low"}
+
+        with patch.object(module.plugin_registry, "get_plugin_for_event", return_value=_plugin()), \
+             patch.object(module, "should_send_notification", return_value=False), \
+             patch.object(module, "NotificationHelper", return_value=Mock(should_send_notification=Mock(return_value=False))):
+            module.process_event(event, rule, config)
+
+        regular_calls = [
+            c for c in module.dynamodb_helper.store_event.call_args_list
+            if c.kwargs.get("event_type") == "regular" or
+               (len(c.args) >= 3 and c.args[2] == "regular")
+        ]
+        assert len(regular_calls) >= 1
+        call = regular_calls[-1]
+        assert call.kwargs.get("correlated_with") is None

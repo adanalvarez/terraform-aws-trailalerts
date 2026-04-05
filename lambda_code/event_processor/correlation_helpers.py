@@ -16,6 +16,28 @@ from constants import SEVERITY_LEVELS, DEFAULT_WINDOW_MINUTES
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+
+def _deduplicate_events(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove duplicate DynamoDB items that represent the same real event.
+
+    The GSI query can return multiple records for one event when that event
+    is stored under different partition keys (e.g. CORRELATION#actor and EVENT).
+    We deduplicate by (sigmaRuleTitle, timestamp, actor).
+    """
+    seen: set = set()
+    unique: List[Dict[str, Any]] = []
+    for item in items:
+        key = (
+            item.get('sigmaRuleTitle', ''),
+            item.get('timestamp', ''),
+            item.get('actor', ''),
+        )
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
 class CorrelationHelper:
     """Helper class for managing correlation rules and finding Sigma rule correlations."""
 
@@ -160,7 +182,11 @@ class CorrelationHelper:
                     )
                     
                     if response.get('Items'):
-                        first_event = response['Items'][0]
+                        # Deduplicate: the GSI may return multiple records for
+                        # the same real event (e.g. stored under both
+                        # CORRELATION# and EVENT pk types).
+                        unique = _deduplicate_events(response['Items'])
+                        first_event = unique[0]
                         logger.info(
                             f"Correlation found: Current rule '{current_rule_title}' at {event_time} "
                             f"correlates with previous rule '{correlation_rule['lookFor']}' at "
@@ -170,7 +196,7 @@ class CorrelationHelper:
                         matches.append({
                             'rule': correlation_rule,
                             'severity_adjustment': correlation_rule.get('severity_adjustment', 'high'),
-                            'correlated_events': response['Items']
+                            'correlated_events': unique
                         })
                         
                 except Exception as e:
@@ -298,7 +324,8 @@ class CorrelationHelper:
                     )
 
                     if response.get('Items'):
-                        first_event = response['Items'][0]
+                        unique = _deduplicate_events(response['Items'])
+                        first_event = unique[0]
                         logger.info(
                             f"Reverse correlation found: Current rule '{current_rule_title}' at {event_time} "
                             f"correlates with triggering rule '{correlation_rule['sigmaRuleTitle']}' at "
@@ -308,7 +335,7 @@ class CorrelationHelper:
                         matches.append({
                             'rule': correlation_rule,
                             'severity_adjustment': correlation_rule.get('severity_adjustment', 'high'),
-                            'correlated_events': response['Items']
+                            'correlated_events': unique
                         })
 
                 except Exception as e:

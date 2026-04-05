@@ -374,11 +374,15 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
     # Threshold/correlation records still keep their dedicated tracking entries,
     # but the Alerts tab should show all processed alerts under the shared EVENT pk.
     if dynamodb_helper:
+        # Determine the correlated rule title (if any) for dashboard display
+        correlated_with = None
+        if correlated_events:
+            correlated_with = correlated_events[0].get('sigmaRuleTitle')
         logger.info(
             f"Storing dashboard history entry for rule: {rule_metadata.get('title', 'unknown')} "
             f"with severity: {rule_metadata.get('level', current_severity)}"
         )
-        dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
+        dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular", correlated_with=correlated_with)
     else:
         logger.info("DynamoDB table not configured - skipping event storage")
 
