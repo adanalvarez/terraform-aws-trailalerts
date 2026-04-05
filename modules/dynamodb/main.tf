@@ -75,4 +75,11 @@ resource "aws_dynamodb_table" "security_events" {
     projection_type = "ALL"
   }
 
+  global_secondary_index {
+    name            = "recentAlertsIndex"
+    hash_key        = "pk"
+    range_key       = "timestamp"
+    projection_type = "ALL"
+  }
+
 }

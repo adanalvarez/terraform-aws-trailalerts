@@ -11,10 +11,17 @@ HTML_TEMPLATES = {
     "section": """
         <div class="section">
             <div class="section-title">{title}</div>
-            {content}
+            <div class="section-body">
+                {content}
+            </div>
         </div>
         """,
-    "field": "<div>{label}: <span class='value'>{value}</span></div>",
+    "field": """
+        <div class="detail-row">
+            <div class='detail-label'>{label}</div>
+            <div class='value'>{value}</div>
+        </div>
+        """,
     "link_button": """
             <div class="cloudtrail-link">
                 <a href="{url}" target="_blank" class="console-button">
@@ -294,12 +301,26 @@ def generate_cloudtrail_information_section(event: Dict[str, Any]) -> str:
     resources = get_nested_value(event, ["resources"])
     if resources and isinstance(resources, list) and resources:
         resources_html = format_resources_list(resources)
-        sections.append(f"<div>Resources: {resources_html}</div>")
+        sections.append(
+            f"""
+            <div class='detail-row'>
+                <div class='detail-label'>Resources</div>
+                {resources_html}
+            </div>
+            """
+        )
     else:
         # Try to find other resource identifiers in the event
         target_resource = extract_resource_from_parameters(event)
         if target_resource:
-            sections.append(f"<div>Resource: <div class='inferred-resource'>{target_resource}</div></div>")
+            sections.append(
+                f"""
+                <div class='detail-row'>
+                    <div class='detail-label'>Resource</div>
+                    <div class='inferred-resource'>{target_resource}</div>
+                </div>
+                """
+            )
         else:
             logging.debug("No resources found in CloudTrail event")
 

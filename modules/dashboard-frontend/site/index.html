@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${project_name} Dashboard</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+<!-- ============================================================
+     Login Screen
+     ============================================================ -->
+<div id="login-screen" class="login-screen">
+    <div class="login-card">
+        <div class="login-accent"></div>
+        <div class="login-content">
+            <img src="/logo.png" alt="${project_name}" style="height:48px; width:auto; margin-bottom:20px;">
+            <h2>Security Dashboard</h2>
+            <p>Detection rules, alert monitoring &amp; security management</p>
+
+            <div id="login-error" class="login-error"></div>
+
+            <!-- Step 1: Credentials -->
+            <div id="login-step-credentials" class="login-step active">
+                <form class="login-form" onsubmit="handleLogin(event)">
+                    <div class="login-field">
+                        <label class="login-label" for="login-email">Email</label>
+                        <input class="login-input" id="login-email" type="email" placeholder="you@company.com" required autocomplete="username">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="login-password">Password</label>
+                        <input class="login-input" id="login-password" type="password" placeholder="Enter your password" required autocomplete="current-password">
+                    </div>
+                    <div class="login-links">
+                        <button type="button" class="login-link" onclick="showForgotPassword()">Forgot password?</button>
+                    </div>
+                    <button type="submit" class="btn-login" id="login-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:10px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        Sign In
+                    </button>
+                </form>
+            </div>
+
+            <!-- Step 2: New Password Required -->
+            <div id="login-step-newpassword" class="login-step">
+                <form class="login-form" onsubmit="handleNewPassword(event)">
+                    <p class="login-note">Your administrator requires you to set a new password.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="new-password">New Password</label>
+                        <input class="login-input" id="new-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="confirm-password">Confirm Password</label>
+                        <input class="login-input" id="confirm-password" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn-login" id="newpass-btn">Set Password</button>
+                </form>
+            </div>
+
+            <!-- Step 3: MFA Code -->
+            <div id="login-step-mfa" class="login-step">
+                <form class="login-form" onsubmit="handleMfa(event)">
+                    <p class="login-note">Enter the 6-digit code from your authenticator app.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="mfa-code">Verification Code</label>
+                        <input class="login-input login-input-mfa" id="mfa-code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required autocomplete="one-time-code">
+                    </div>
+                    <button type="submit" class="btn-login" id="mfa-btn">Verify</button>
+                </form>
+            </div>
+
+            <!-- Step 4: Forgot Password -->
+            <div id="login-step-forgot" class="login-step">
+                <form class="login-form" onsubmit="handleForgotPassword(event)">
+                    <p class="login-note">Enter your email and we'll send a verification code to reset your password.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="forgot-email">Email</label>
+                        <input class="login-input" id="forgot-email" type="email" placeholder="you@company.com" required autocomplete="username">
+                    </div>
+                    <button type="submit" class="btn-login" id="forgot-btn">Send Code</button>
+                    <div style="margin-top:16px; text-align:center;">
+                        <button type="button" class="login-link" onclick="showLoginStep('credentials')">Back to sign in</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Step 5: Reset Password -->
+            <div id="login-step-reset" class="login-step">
+                <form class="login-form" onsubmit="handleResetPassword(event)">
+                    <p class="login-note">Enter the verification code sent to your email and choose a new password.</p>
+                    <div class="login-field">
+                        <label class="login-label" for="reset-code">Verification Code</label>
+                        <input class="login-input" id="reset-code" type="text" inputmode="numeric" maxlength="6" placeholder="Enter code" required autocomplete="one-time-code">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="reset-password">New Password</label>
+                        <input class="login-input" id="reset-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                    </div>
+                    <div class="login-field">
+                        <label class="login-label" for="reset-confirm">Confirm Password</label>
+                        <input class="login-input" id="reset-confirm" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn-login" id="reset-btn">Reset Password</button>
+                    <div style="margin-top:16px; text-align:center;">
+                        <button type="button" class="login-link" onclick="showLoginStep('credentials')">Back to sign in</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="login-footer">Powered by <a href="https://adan.cloud" target="_blank" rel="noopener noreferrer">adan.cloud</a></div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     Main Application
+     ============================================================ -->
+<div id="app" style="display:none;">
+    <div class="header">
+        <div class="header-brand">
+            <img src="/logo.png" alt="${project_name}" class="header-logo">
+            <span class="header-title">${project_name}</span>
+        </div>
+        <div class="nav">
+            <button class="nav-btn active" data-page="overview" onclick="showPage('overview')">Overview</button>
+            <button class="nav-btn" data-page="rules" onclick="showPage('rules')">Rules</button>
+            <button class="nav-btn" data-page="postprocessing" onclick="showPage('postprocessing')">Postprocessing</button>
+            <button class="nav-btn" data-page="exceptions" onclick="showPage('exceptions')">Exceptions</button>
+            <button class="nav-btn" data-page="alerts" onclick="showPage('alerts')">Alerts</button>
+        </div>
+        <div class="user-info">
+            <span id="user-email" class="user-email"></span>
+            <button class="btn-header-logout" onclick="logout()">Sign Out</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Overview Page -->
+        <div id="page-overview" class="page active">
+            <div class="stats" id="stats-cards">
+                <div class="stat-card"><div class="label">Total Alerts (24h)</div><div class="value" id="stat-total">-</div></div>
+                <div class="stat-card"><div class="label">Critical</div><div class="value" id="stat-critical" style="color:var(--critical);">-</div></div>
+                <div class="stat-card"><div class="label">High</div><div class="value" id="stat-high" style="color:var(--high);">-</div></div>
+                <div class="stat-card"><div class="label">Medium</div><div class="value" id="stat-medium" style="color:var(--medium);">-</div></div>
+                <div class="stat-card"><div class="label">Active Rules</div><div class="value" id="stat-rules">-</div></div>
+            </div>
+            <div class="table-wrap">
+                <div class="table-toolbar"><strong>Top Triggered Rules (24h)</strong></div>
+                <table>
+                    <thead><tr><th>Rule</th><th>Count</th></tr></thead>
+                    <tbody id="top-rules-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Rules Page -->
+        <div id="page-rules" class="page">
+            <div id="rules-list-view">
+                <div class="table-wrap">
+                    <div class="table-toolbar">
+                        <strong>Sigma Rules</strong>
+                        <input type="text" class="filter-input" id="rules-search" placeholder="Search rules..." oninput="debouncedRenderRules()" autocomplete="off" />
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newRule()">+ New Rule</button>
+                    </div>
+                    <table>
+                        <thead><tr>
+                            <th class="sortable" data-sort="title" onclick="sortRules(this,'title')">Title</th>
+                            <th class="sortable" data-sort="level" onclick="sortRules(this,'level')">Severity</th>
+                            <th class="sortable" data-sort="status" onclick="sortRules(this,'status')">Status</th>
+                            <th class="sortable" data-sort="lastModified" onclick="sortRules(this,'lastModified')">Last Modified</th>
+                            <th>Actions</th>
+                        </tr></thead>
+                        <tbody id="rules-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="rules-edit-view" style="display:none;">
+                <div class="editor-container">
+                    <div class="editor-header">
+                        <div style="display:flex; align-items:center; gap:1rem;">
+                            <button class="btn btn-secondary btn-sm" onclick="backToRulesList()">&larr; Back</button>
+                            <span id="editor-title" style="font-weight:600;"></span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button class="btn btn-danger btn-sm" id="delete-rule-btn" onclick="deleteCurrentRule()">Delete</button>
+                            <button class="btn btn-primary btn-sm" onclick="saveRule()">Save</button>
+                        </div>
+                    </div>
+                    <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Page -->
+        <div id="page-alerts" class="page">
+            <div class="table-wrap">
+                <div class="table-toolbar">
+                    <strong>Alert History</strong>
+                    <input type="text" class="filter-input" id="alert-rule-filter" placeholder="Search alerts..." oninput="debouncedRenderAlerts()" autocomplete="off" />
+                    <select class="filter-select" id="alert-severity-filter" onchange="loadAlerts()">
+                        <option value="">All severities</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                        <option value="info">Info</option>
+                    </select>
+                    <select class="filter-select" id="alert-hours-filter" onchange="loadAlerts()">
+                        <option value="1">Last 1h</option>
+                        <option value="6">Last 6h</option>
+                        <option value="24" selected>Last 24h</option>
+                        <option value="72">Last 3d</option>
+                        <option value="168">Last 7d</option>
+                        <option value="720">Last 30d</option>
+                    </select>
+                    <button class="btn btn-secondary btn-sm" onclick="loadAlerts()">Search</button>
+                </div>
+                <div class="table-scroll">
+                    <table>
+                        <thead><tr>
+                            <th class="sortable" onclick="sortAlerts(this,'timestamp')">Time</th>
+                            <th class="sortable" onclick="sortAlerts(this,'sigmaRuleTitle')">Rule</th>
+                            <th class="sortable" onclick="sortAlerts(this,'severity')">Severity</th>
+                            <th class="sortable" onclick="sortAlerts(this,'eventName')">Event</th>
+                            <th class="sortable" onclick="sortAlerts(this,'actor')">Actor</th>
+                            <th class="sortable" onclick="sortAlerts(this,'sourceIp')">Source IP</th>
+                            <th>Actions</th>
+                        </tr></thead>
+                        <tbody id="alerts-body"></tbody>
+                    </table>
+                </div>
+                <div id="alerts-pagination" style="padding:0.75rem 1.25rem; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--border-light);">
+                    <span id="alerts-count" style="font-size:13px; color:var(--text-muted);"></span>
+                    <button id="alerts-load-more" class="btn btn-secondary btn-sm" onclick="loadMoreAlerts()" style="display:none;">Load More Alerts</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Postprocessing Page -->
+        <div id="page-postprocessing" class="page">
+            <div id="pp-list-view">
+                <div class="table-wrap" style="margin-bottom:1.5rem;">
+                    <div class="table-toolbar">
+                        <strong>Correlation Rules</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingRule('correlation')">+ New Correlation</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>Sigma Rule</th><th>Look For</th><th>Window (min)</th><th>Severity Adj.</th><th>File</th><th>Actions</th></tr></thead>
+                        <tbody id="correlation-body"></tbody>
+                    </table>
+                </div>
+                <div class="table-wrap" style="margin-bottom:1.5rem;">
+                    <div class="table-toolbar">
+                        <strong>Threshold Rules</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingRule('threshold')">+ New Threshold</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>Sigma Rule</th><th>Count</th><th>Window (min)</th><th>Severity Adj.</th><th>File</th><th>Actions</th></tr></thead>
+                        <tbody id="threshold-body"></tbody>
+                    </table>
+                </div>
+                <div class="table-wrap">
+                    <div class="table-toolbar">
+                        <strong>Postprocessing Files</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingFile()">+ New File</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>File</th><th>Rules</th><th>Last Modified</th><th>Actions</th></tr></thead>
+                        <tbody id="pp-files-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="pp-edit-view" style="display:none;">
+                <div class="editor-container">
+                    <div class="editor-header">
+                        <div style="display:flex; align-items:center; gap:1rem;">
+                            <button class="btn btn-secondary btn-sm" onclick="backToPPList()">&larr; Back</button>
+                            <span id="pp-editor-title" style="font-weight:600;"></span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button class="btn btn-danger btn-sm" id="delete-pp-btn" onclick="deleteCurrentPP()">Delete</button>
+                            <button class="btn btn-primary btn-sm" onclick="savePP()">Save</button>
+                        </div>
+                    </div>
+                    <textarea class="yaml-editor" id="pp-editor" spellcheck="false"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exceptions Page -->
+        <div id="page-exceptions" class="page">
+            <div id="exc-list-view">
+                <div class="table-wrap">
+                    <div class="table-toolbar">
+                        <strong>Exception Rules</strong>
+                        <div style="flex:1;"></div>
+                        <button class="btn btn-primary btn-sm" onclick="newException()">+ Add Rule Exception</button>
+                    </div>
+                    <table>
+                        <thead><tr><th>Rule Title</th><th>Excluded Actors</th><th>Excluded IPs</th><th>Regex Patterns</th><th>Actions</th></tr></thead>
+                        <tbody id="exceptions-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="exc-edit-view" style="display:none;">
+                <div class="editor-container">
+                    <div class="editor-header">
+                        <div style="display:flex; align-items:center; gap:1rem;">
+                            <button class="btn btn-secondary btn-sm" onclick="backToExcList()">&larr; Back</button>
+                            <span id="exc-editor-title" style="font-weight:600;">Exceptions (JSON)</span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button class="btn btn-primary btn-sm" onclick="saveExceptions()">Save</button>
+                        </div>
+                    </div>
+                    <textarea class="yaml-editor" id="exc-editor" spellcheck="false"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Detail Modal -->
+<div class="modal-overlay" id="alert-modal">
+    <div class="modal">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h3>Alert Detail</h3>
+            <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+        </div>
+        <div id="alert-detail-content"></div>
+    </div>
+</div>
+
+<!-- Confirm / Input Dialog -->
+<div class="modal-overlay" id="dialog-modal">
+    <div class="modal" style="max-width:480px;">
+        <h3 id="dialog-title"></h3>
+        <p id="dialog-message" style="margin-bottom:1rem; color:var(--text-body);"></p>
+        <input class="filter-input" id="dialog-input" style="width:100%; margin-bottom:1rem; display:none;" />
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+            <button class="btn btn-secondary btn-sm" id="dialog-cancel">Cancel</button>
+            <button class="btn btn-primary btn-sm" id="dialog-confirm">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ============================================================
+     Scripts — loaded in dependency order (no build tooling needed)
+
+     CONFIG is inline because Terraform templatefile injects the
+     runtime values at deploy time. All other JS is static.
+     ============================================================ -->
+<script>
+'use strict';
+var CONFIG = {
+    apiEndpoint:      '',
+    cognitoDomain:    '${cognito_domain}',
+    cognitoClientId:  '${cognito_client_id}',
+    cognitoUserPoolId:'${cognito_user_pool_id}',
+    region:           '${aws_region}',
+};
+</script>
+<script src="/js/ui.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/overview.js"></script>
+<script src="/js/rules.js"></script>
+<script src="/js/alerts.js"></script>
+<script src="/js/postprocessing.js"></script>
+<script src="/js/exceptions.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

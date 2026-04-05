@@ -6,7 +6,9 @@ import logging
 import yaml
 import hashlib
 import time
-from typing import Dict, List, Any, Optional, Tuple
+import uuid
+from collections import defaultdict
+from typing import Dict, List, Any, Optional, Tuple, Set
 from sigma_matcher import matches_sigma_rule
 
 logger = logging.getLogger()
@@ -17,6 +19,9 @@ s3_client = boto3.client('s3')
 
 SQS_QUEUE_URL = os.environ['SQS_QUEUE_URL']
 TRAILALERTS_BUCKET = os.environ['TRAILALERTS_BUCKET']
+
+# SQS batch size limit
+SQS_BATCH_SIZE = 10
 
 # Module-level caches
 sigma_rules_cache: Optional[List[Dict[str, Any]]] = None
@@ -164,6 +169,23 @@ def get_candidate_rules(record: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     return candidates
 
+    if not sigma_rules:
+        error_message = (
+            f"No valid Sigma rules could be loaded from s3://{bucket}/sigma_rules/ "
+            f"({yaml_files_seen} YAML file(s) scanned, {len(failed_files)} file(s) failed)"
+        )
+        logger.error(error_message)
+        raise RuntimeError(error_message)
+
+    if failed_files:
+        logger.warning(
+            f"Loaded {len(sigma_rules)} Sigma rule(s) while skipping {len(failed_files)} invalid file(s)"
+        )
+    else:
+        logger.info(f"Loaded {len(sigma_rules)} Sigma rule(s) from {yaml_files_seen} YAML file(s)")
+
+    return sigma_rules
+
 
 def reload_sigma_rules_if_needed() -> None:
     """Reload Sigma rules if cache is empty or bucket content changed."""
@@ -179,6 +201,14 @@ def reload_sigma_rules_if_needed() -> None:
             rule_index, wildcard_rules = build_rule_index(new_rules)
     except Exception as e:
         logger.error(f"Error reloading Sigma rules: {str(e)}")
+        if previous_cache is not None:
+            sigma_rules_cache = previous_cache
+            sigma_rules_etag_hash = previous_hash
+            rule_index = previous_index
+            wildcard_rules = previous_wildcards
+            logger.warning("Keeping last known good Sigma rules cache and index")
+        else:
+            raise
 
 
 def fetch_s3_object(bucket: str, key: str) -> str:

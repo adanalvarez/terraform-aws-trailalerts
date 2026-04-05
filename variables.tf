@@ -48,6 +48,19 @@ variable "vpnapi_key" {
   default     = ""
 }
 
+variable "webhook_url" {
+  description = "Webhook URL to POST alert notifications to. When set, alerts are sent as JSON payloads to this endpoint. Works alongside or instead of SES/SNS."
+  type        = string
+  default     = ""
+}
+
+variable "webhook_headers" {
+  description = "Optional HTTP headers to include on webhook requests (e.g. Authorization tokens). Values are stored as a Lambda environment variable."
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
 variable "correlation_enabled" {
   type        = bool
   default     = false
@@ -92,4 +105,20 @@ variable "is_multi_region_trail" {
   description = "Whether the CloudTrail should log events for all regions"
   type        = bool
   default     = true
+}
+
+# ---------------------------------------------------------------------------
+# Dashboard (optional)
+# ---------------------------------------------------------------------------
+
+variable "enable_dashboard" {
+  description = "Whether to create the web dashboard for managing rules and viewing alert history. Creates Cognito, API Gateway, Lambda, S3, and CloudFront resources."
+  type        = bool
+  default     = false
+}
+
+variable "dashboard_admin_emails" {
+  description = "List of email addresses that will be created as admin users in the dashboard Cognito User Pool. Only used when enable_dashboard is true."
+  type        = list(string)
+  default     = []
 }

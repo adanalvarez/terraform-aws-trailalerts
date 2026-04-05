@@ -12,6 +12,7 @@ from correlation_helpers import CorrelationHelper
 from threshold_helpers import ThresholdHelper
 from notification_helpers import NotificationHelper
 from exception_helpers import ExceptionHelper
+from webhook_helpers import webhook_send
 from constants import SEVERITY_LEVELS, DEFAULT_MIN_SEVERITY
 from datetime import datetime, timedelta
 
@@ -55,7 +56,7 @@ OPTIONAL_ENV_VARS = {
     "MIN_NOTIFICATION_SEVERITY": "Minimum severity level for sending notifications"
 }
 
-def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda function entry point.
     
@@ -64,14 +65,22 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
         context: The Lambda context
         
     Returns:
-        Dict containing status code and message
+        Dict containing status code/message or SQS partial batch failures
     """
     try:
+        sqs_records = [
+            record for record in event.get("Records", [])
+            if record.get("eventSource") == "aws:sqs"
+        ]
+        batch_failures: List[Dict[str, str]] = []
+
         # Validate environment variables
         missing_vars = [var for var in REQUIRED_ENV_VARS if not os.environ.get(var)]
         if missing_vars:
             error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
             logger.error(error_msg)
+            if sqs_records:
+                raise RuntimeError(error_msg)
             return {"statusCode": "500", "body": error_msg}
         
         # Log optional environment variables
@@ -84,82 +93,89 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
         # Register plugins
         register_plugins()
         
-        # Process SQS messages
-        if "Records" in event:
-            for record in event["Records"]:
-                if record.get("eventSource") == "aws:sqs":
-                    try:
-                        # Parse the message body
-                        message_body = json.loads(record.get("body", "{}"))
-                        logger.debug(f"Received message body: {json.dumps(message_body)[:500]}...")
-                        
-                        # Initialize rule_metadata
-                        rule_metadata = {}
-                        
-                        # Extract both formats of rule data
-                        sigma_rule_data = message_body.get("sigma_rule_data")
-                        sigma_rule_title = message_body.get("sigma_rule_title", "Unknown Rule")
-                        sigma_rule_id = message_body.get("sigma_rule_id", "unknown")
-                        
-                        # If sigma_rule_data exists, try to use it
-                        if sigma_rule_data is not None:
-                            if isinstance(sigma_rule_data, str):
-                                try:
-                                    rule_metadata = json.loads(sigma_rule_data)
-                                except json.JSONDecodeError:
-                                    logger.error(f"Failed to parse sigma_rule_data as JSON: {sigma_rule_data[:100]}...")
-                                    # Fall back to individual fields if parsing fails
-                                    rule_metadata = {
-                                        "title": sigma_rule_title,
-                                        "id": sigma_rule_id,
-                                        "level": "medium"  # Default level
-                                    }
-                            else:
-                                # If it's already a dictionary, use it directly
-                                rule_metadata = sigma_rule_data
-                        else:
-                            # If sigma_rule_data doesn't exist, use individual fields
+        # Process SQS messages with partial batch failure handling
+        for record in sqs_records:
+            message_id = record.get("messageId")
+            try:
+                # Parse the message body
+                message_body = json.loads(record.get("body", "{}"))
+                logger.debug(f"Received message body: {json.dumps(message_body)[:500]}...")
+                
+                # Initialize rule_metadata
+                rule_metadata = {}
+                
+                # Extract both formats of rule data
+                sigma_rule_data = message_body.get("sigma_rule_data")
+                sigma_rule_title = message_body.get("sigma_rule_title", "Unknown Rule")
+                sigma_rule_id = message_body.get("sigma_rule_id", "unknown")
+                
+                # If sigma_rule_data exists, try to use it
+                if sigma_rule_data is not None:
+                    if isinstance(sigma_rule_data, str):
+                        try:
+                            rule_metadata = json.loads(sigma_rule_data)
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse sigma_rule_data as JSON: {sigma_rule_data[:100]}...")
+                            # Fall back to individual fields if parsing fails
                             rule_metadata = {
                                 "title": sigma_rule_title,
                                 "id": sigma_rule_id,
                                 "level": "medium"  # Default level
                             }
-                        
-                        logger.info(f"Processing rule: {rule_metadata.get('title', 'unknown')} (ID: {rule_metadata.get('id', 'unknown')})")
-                        
-                        matched_event = message_body.get("matched_event", {})
-                        if not matched_event:
-                            logger.error("No matched_event field in the message body")
-                            continue
-                            
-                        # Add sigma rule title to the event if available
-                        if rule_metadata.get("title") and "sigmaRuleTitle" not in matched_event:
-                            matched_event["sigmaRuleTitle"] = rule_metadata.get("title")
-                        
-                        # Add event source if it's missing
-                        if "sigmaEventSource" not in matched_event and "eventSource" in matched_event:
-                            # For CloudTrail events, use the CloudTrail source
-                            matched_event["sigmaEventSource"] = "CloudTrail"
-                        
-                        # Process the event
-                        process_event(matched_event, rule_metadata, {
-                            "sns_topic": os.environ.get("SNS_TOPIC_ARN"),
-                            "source_email": os.environ.get("SOURCE_EMAIL"),
-                            "destination_email": os.environ.get("EMAIL_RECIPIENT"),
-                            "api_key": os.environ.get("VPNAPI_KEY"),
-                            "correlation_enabled": os.environ.get("CORRELATION_ENABLED", "false")
-                        })
-                    except Exception as e:
-                        logger.error(f"Error processing SQS message: {str(e)}")
-                        # Log the message body for debugging
-                        try:
-                            logger.error(f"Message body: {record.get('body', '{}')[:500]}...")
-                        except:
-                            logger.error("Could not log message body")
+                    else:
+                        # If it's already a dictionary, use it directly
+                        rule_metadata = sigma_rule_data
+                else:
+                    # If sigma_rule_data doesn't exist, use individual fields
+                    rule_metadata = {
+                        "title": sigma_rule_title,
+                        "id": sigma_rule_id,
+                        "level": "medium"  # Default level
+                    }
+                
+                logger.info(f"Processing rule: {rule_metadata.get('title', 'unknown')} (ID: {rule_metadata.get('id', 'unknown')})")
+                
+                matched_event = message_body.get("matched_event", {})
+                if not matched_event:
+                    raise ValueError("No matched_event field in the message body")
+                    
+                # Add sigma rule title to the event if available
+                if rule_metadata.get("title") and "sigmaRuleTitle" not in matched_event:
+                    matched_event["sigmaRuleTitle"] = rule_metadata.get("title")
+                
+                # Add event source if it's missing
+                if "sigmaEventSource" not in matched_event and "eventSource" in matched_event:
+                    # For CloudTrail events, use the CloudTrail source
+                    matched_event["sigmaEventSource"] = "CloudTrail"
+                
+                # Process the event
+                process_event(matched_event, rule_metadata, {
+                    "sns_topic": os.environ.get("SNS_TOPIC_ARN"),
+                    "source_email": os.environ.get("SOURCE_EMAIL"),
+                    "destination_email": os.environ.get("EMAIL_RECIPIENT"),
+                    "api_key": os.environ.get("VPNAPI_KEY"),
+                    "correlation_enabled": os.environ.get("CORRELATION_ENABLED", "false"),
+                    "webhook_url": os.environ.get("WEBHOOK_URL", ""),
+                    "webhook_headers": json.loads(os.environ.get("WEBHOOK_HEADERS", "{}"))
+                })
+            except Exception as e:
+                logger.exception(f"Error processing SQS message{f' {message_id}' if message_id else ''}: {str(e)}")
+                if message_id:
+                    batch_failures.append({"itemIdentifier": message_id})
+                # Log the message body for debugging
+                try:
+                    logger.error(f"Message body: {record.get('body', '{}')[:500]}...")
+                except Exception:
+                    logger.error("Could not log message body")
         
+        if sqs_records:
+            return {"batchItemFailures": batch_failures}
+
         return {"statusCode": "200", "body": "Event processed successfully"}
     except Exception as e:
-        logger.error(f"Error in lambda_handler: {str(e)}")
+        logger.exception(f"Error in lambda_handler: {str(e)}")
+        if any(record.get("eventSource") == "aws:sqs" for record in event.get("Records", [])):
+            raise
         return {"statusCode": "500", "body": f"Error: {str(e)}"}
 
 def register_plugins() -> None:
@@ -283,9 +299,6 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
                 logger.info(f"Using threshold info for notification: {threshold_info}")
             else:
                 logger.warning("Threshold was exceeded but no threshold info was generated")
-            
-            # Store as a regular event for long-term storage
-            dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
         else:
             logger.info(f"Threshold not exceeded for rule: {rule_metadata.get('title', 'unknown')}, keeping original severity: {rule_metadata.get('level', 'info')}")
     
@@ -309,23 +322,28 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
             # Use global cooldown for correlation events
             cooldown_minutes = global_cooldown_minutes
             logger.info(f"Using global cooldown period of {cooldown_minutes} minutes for correlation rule '{rule_metadata.get('title')}'")
-            
-            # Store as a regular event for long-term storage
-            dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
         else:
             logger.info(f"No correlation found for rule: {rule_metadata.get('title', 'unknown')}, keeping original severity: {rule_metadata.get('level', 'info')}")
     
     else:
         # Regular event processing
         logger.info(f"Processing regular event for rule: {rule_metadata.get('title', 'unknown')}")
-        if dynamodb_helper:
-            dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
-        else:
-            logger.info("DynamoDB table not configured - skipping event storage")
         
         # Use global cooldown for regular events
         cooldown_minutes = global_cooldown_minutes
         logger.info(f"Using global cooldown period of {cooldown_minutes} minutes for regular rule '{rule_metadata.get('title')}'")
+
+    # Always store a dashboard-visible history record using the final severity.
+    # Threshold/correlation records still keep their dedicated tracking entries,
+    # but the Alerts tab should show all processed alerts under the shared EVENT pk.
+    if dynamodb_helper:
+        logger.info(
+            f"Storing dashboard history entry for rule: {rule_metadata.get('title', 'unknown')} "
+            f"with severity: {rule_metadata.get('level', current_severity)}"
+        )
+        dynamodb_helper.store_event(matched_event, rule_metadata, event_type="regular")
+    else:
+        logger.info("DynamoDB table not configured - skipping event storage")
 
     # Only send notifications if severity meets threshold or if threshold was exceeded
     min_severity = os.environ.get("MIN_NOTIFICATION_SEVERITY", DEFAULT_MIN_SEVERITY)
@@ -343,16 +361,17 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
         if not should_notify:
             # The notification was skipped due to cooldown
             cooldown_applied = True
-            
-        if should_notify:
-            # Update the last notification time
-            notification_helper.update_notification_time(rule_title)
     elif should_notify and not notification_helper:
         logger.info("DynamoDB table not configured - cooldown tracking disabled, always sending notifications")
     
     if should_notify:
         logger.info(f"SENDING NOTIFICATION: Severity {current_severity} meets or exceeds threshold {min_severity} or threshold was exceeded")
-        send_notifications(matched_event, rule_metadata, config, correlated_events, threshold_info)
+        notification_sent = send_notifications(matched_event, rule_metadata, config, correlated_events, threshold_info)
+
+        if notification_sent and cooldown_minutes is not None and notification_helper:
+            notification_helper.update_notification_time(rule_metadata.get('title', 'unknown'))
+        elif not notification_sent:
+            logger.error("NOTIFICATION FAILED: Cooldown was not updated so the alert can be retried")
     else:
         if cooldown_applied:
             logger.info(f"SKIPPING NOTIFICATION: In cooldown period (notification threshold was met but cooldown period is active)")
@@ -384,7 +403,7 @@ def determine_event_type(rule_metadata: Dict[str, Any]) -> str:
 
 def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
                       config: Dict[str, Any], correlated_events: List[Dict[str, Any]] = None,
-                      threshold_info: Dict[str, Any] = None) -> None:
+                      threshold_info: Dict[str, Any] = None) -> bool:
     """
     Send notifications using either SNS or SES based on configuration.
     
@@ -394,20 +413,43 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
         config: Configuration dictionary
         correlated_events: Optional list of correlated events
         threshold_info: Optional dictionary containing threshold information
+
+    Returns:
+        bool: True when the notification request was accepted, False otherwise
     """
     # Find the appropriate plugin
     plugin = plugin_registry.get_plugin_for_event(matched_event)
     
     if not plugin:
         logger.warning(f"No plugin found for event type: {matched_event.get('eventType', 'unknown')}")
-        return
+        return False
     
     # Debug logging to trace threshold information
     logger.info(f"DEBUG: Received threshold_info in send_notifications: {threshold_info}")
+
+    any_sent = False
+
+    # --- Webhook (independent of SES/SNS) ---
+    webhook_url = config.get("webhook_url")
+    if webhook_url:
+        logger.info("Sending notification via Webhook")
+        webhook_ok = webhook_send(
+            webhook_url,
+            config.get("webhook_headers", {}),
+            matched_event,
+            rule_metadata,
+            correlated_events,
+            threshold_info,
+        )
+        if webhook_ok:
+            any_sent = True
     
+    # --- SNS ---
     if config.get("sns_topic"):
         logger.info("Sending notification via SNS")
-        sns_send_email(config["sns_topic"], matched_event, correlated_events, threshold_info, rule_metadata)
+        if sns_send_email(config["sns_topic"], matched_event, correlated_events, threshold_info, rule_metadata):
+            any_sent = True
+    # --- SES ---
     elif config.get("source_email") and config.get("destination_email"):
         sections = []
         
@@ -455,7 +497,7 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
         logger.info("Generating HTML email")
         email_html = generate_email_html(generate_style(), sections)
 
-        ses_send_email(
+        if ses_send_email(
             email_html, 
             matched_event, 
             config["source_email"], 
@@ -463,6 +505,10 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
             rule_metadata,
             correlated_events,
             threshold_info
-        )
-    else:
-        logger.warning("No notification method configured - skipping notifications")
+        ):
+            any_sent = True
+
+    if not any_sent:
+        logger.warning("No notification method configured or all methods failed - skipping notifications")
+
+    return any_sent

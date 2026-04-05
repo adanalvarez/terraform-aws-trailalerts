@@ -35,7 +35,7 @@ jobs:
           cache-dependency-path: scripts/lambda-layer/requirements.txt
 
       - name: Install dependencies
-        run: pip install pytest pyyaml
+        run: pip install pytest pyyaml boto3
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
@@ -59,7 +59,30 @@ jobs:
           cache-dependency-path: scripts/lambda-layer/requirements.txt
 
       - name: Install dependencies
-        run: pip install pytest
+        run: pip install pytest boto3 requests
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+  test-dashboard-api:
+    name: Dashboard API Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lambda_code/dashboard_api
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: scripts/lambda-layer/requirements.txt
+
+      - name: Install dependencies
+        run: pip install pytest boto3 pyyaml
 
       - name: Run tests
         run: pytest tests/ -v --tb=short

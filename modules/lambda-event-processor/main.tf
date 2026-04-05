@@ -1,14 +1,8 @@
-resource "null_resource" "create_zip_every_time" {
-  triggers = {
-    always_run = timestamp()
-  }
-}
-
 data "archive_file" "trailalerts_event_processor_zip" {
-  depends_on  = [null_resource.create_zip_every_time]
   type        = "zip"
   source_dir  = "${local.rel_path_root}/lambda_code/event_processor"
   output_path = "${local.rel_path_root}/build/TrailAlertsEventProcessor.zip"
+  excludes    = ["__pycache__", "tests"]
 }
 
 resource "aws_lambda_function" "trailalerts_event_processor" {
@@ -31,9 +25,11 @@ resource "aws_lambda_function" "trailalerts_event_processor" {
       SOURCE_EMAIL                  = var.source_email
       VPNAPI_KEY                    = var.vpnapi_key
       CORRELATION_ENABLED           = tostring(var.correlation_enabled)
-      CORRELATION_RULES_BUCKET      = var.trailalerts_rules_bucket_arn
+      CORRELATION_RULES_BUCKET      = var.trailalerts_rules_bucket
       NOTIFICATION_COOLDOWN_MINUTES = tostring(var.notification_cooldown_minutes)
       MIN_NOTIFICATION_SEVERITY     = var.min_notification_severity
+      WEBHOOK_URL                   = var.webhook_url
+      WEBHOOK_HEADERS               = jsonencode(var.webhook_headers)
     }
   }
 
