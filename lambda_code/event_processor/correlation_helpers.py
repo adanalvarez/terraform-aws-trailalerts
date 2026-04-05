@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 import boto3
@@ -28,6 +29,8 @@ class CorrelationHelper:
         self.bucket_name = bucket_name
         self.correlation_rules_cache = None
         self.etag_hash = None
+        self._last_refresh_check = 0.0
+        self._refresh_ttl_seconds = 5
 
     def _load_correlation_rules(self) -> List[Dict[str, Any]]:
         """Load correlation rules from S3 bucket."""
@@ -91,10 +94,23 @@ class CorrelationHelper:
             return None
 
     def _refresh_cache_if_needed(self) -> None:
-        """Refresh the correlation rules cache if ETags have changed."""
+        """Refresh the correlation rules cache if ETags have changed.
+
+        Uses a short TTL so that multiple methods called within the same
+        Lambda invocation (has_matching_rule, is_lookfor_target,
+        find_correlations, find_reverse_correlations) only trigger one
+        S3 list_objects_v2 call instead of one per method.
+        """
+        now = time.monotonic()
+        if (self.correlation_rules_cache is not None and
+                now - self._last_refresh_check < self._refresh_ttl_seconds):
+            return
+
         current_hash = self._compute_etag_hash()
         if current_hash is None:
             return
+
+        self._last_refresh_check = now
 
         if self.correlation_rules_cache is None or self.etag_hash != current_hash:
             logger.info("Detected changes in postprocessing rules, refreshing cache")
@@ -195,3 +211,107 @@ class CorrelationHelper:
                 return True
         
         return False
+
+    def is_lookfor_target(self, rule_title: str) -> bool:
+        """
+        Check if the given rule title is the lookFor target of any correlation rule.
+        
+        Args:
+            rule_title: The title of the Sigma rule
+            
+        Returns:
+            bool: True if this rule is a lookFor target, False otherwise
+        """
+        self._refresh_cache_if_needed()
+
+        if not self.correlation_rules_cache:
+            return False
+
+        for rule in self.correlation_rules_cache:
+            if rule.get('lookFor') == rule_title:
+                return True
+
+        return False
+
+    def find_reverse_correlations(self, event: Dict[str, Any], rule: Dict[str, Any], dynamodb_table) -> List[Dict[str, Any]]:
+        """
+        Reverse correlation: when the lookFor target event arrives, check if the
+        triggering event (sigmaRuleTitle) was already stored in DynamoDB.
+
+        This is the bidirectional counterpart to find_correlations(). Together they
+        ensure that regardless of which event is processed first, the correlation
+        is detected.
+
+        Args:
+            event: The CloudTrail event
+            rule: The Sigma rule metadata
+            dynamodb_table: DynamoDB table resource
+
+        Returns:
+            List of correlation matches (same format as find_correlations)
+        """
+        self._refresh_cache_if_needed()
+
+        if not self.correlation_rules_cache:
+            return []
+
+        current_rule_title = rule.get('title')
+        event_time = event.get('eventTime')
+
+        if not current_rule_title or not event_time:
+            return []
+
+        matches = []
+        for correlation_rule in self.correlation_rules_cache:
+            # Reverse direction: current event IS the lookFor target
+            if (correlation_rule.get('lookFor') == current_rule_title and
+                    correlation_rule.get('sigmaRuleTitle')):
+
+                try:
+                    event_datetime = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
+                except ValueError:
+                    logger.warning(
+                        f"Skipping reverse correlation for rule '{current_rule_title}': "
+                        f"invalid eventTime '{event_time}'"
+                    )
+                    continue
+                window_minutes = correlation_rule.get('windowMinutes', DEFAULT_WINDOW_MINUTES)
+                window_start = (event_datetime - timedelta(minutes=window_minutes)).isoformat()
+                end_time_with_buffer = (event_datetime + timedelta(seconds=5)).isoformat()
+
+                logger.info(
+                    f"Reverse correlation check: current rule '{current_rule_title}' is lookFor target, "
+                    f"searching for triggering rule '{correlation_rule['sigmaRuleTitle']}' "
+                    f"between {window_start} and {end_time_with_buffer}"
+                )
+
+                try:
+                    response = dynamodb_table.query(
+                        IndexName='sigmaRuleTitleIndex',
+                        KeyConditionExpression='sigmaRuleTitle = :title AND #ts BETWEEN :start AND :end',
+                        ExpressionAttributeNames={'#ts': 'timestamp'},
+                        ExpressionAttributeValues={
+                            ':title': correlation_rule['sigmaRuleTitle'],
+                            ':start': window_start,
+                            ':end': end_time_with_buffer
+                        }
+                    )
+
+                    if response.get('Items'):
+                        first_event = response['Items'][0]
+                        logger.info(
+                            f"Reverse correlation found: Current rule '{current_rule_title}' at {event_time} "
+                            f"correlates with triggering rule '{correlation_rule['sigmaRuleTitle']}' at "
+                            f"{first_event.get('timestamp')} (within {window_minutes} minutes)"
+                        )
+
+                        matches.append({
+                            'rule': correlation_rule,
+                            'severity_adjustment': correlation_rule.get('severity_adjustment', 'high'),
+                            'correlated_events': response['Items']
+                        })
+
+                except Exception as e:
+                    logger.error(f"Failed to query DynamoDB for reverse correlations: {str(e)}")
+
+        return matches
