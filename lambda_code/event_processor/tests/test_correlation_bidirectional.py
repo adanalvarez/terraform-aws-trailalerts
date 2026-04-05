@@ -429,3 +429,59 @@ class TestReverseCorrelationInProcessEvent:
 
         # Severity should remain "high" (not downgraded to "medium")
         assert rule["level"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Cache refresh TTL tests
+# ---------------------------------------------------------------------------
+
+class TestCacheRefreshTTL:
+    def _make_helper(self):
+        from correlation_helpers import CorrelationHelper
+        helper = CorrelationHelper.__new__(CorrelationHelper)
+        helper.correlation_rules_cache = [
+            {"type": "correlation", "sigmaRuleTitle": "Rule A", "lookFor": "Rule B", "windowMinutes": 60}
+        ]
+        helper.etag_hash = "abc123"
+        helper.s3_client = Mock()
+        helper.bucket_name = "test"
+        helper._last_refresh_check = 0.0
+        helper._refresh_ttl_seconds = 5
+        return helper
+
+    def test_multiple_calls_within_ttl_trigger_one_etag_check(self):
+        """Within the TTL window, _compute_etag_hash should be called only once."""
+        helper = self._make_helper()
+
+        with patch.object(helper, "_compute_etag_hash", return_value="abc123") as mock_hash:
+            # First call should compute the hash
+            helper._refresh_cache_if_needed()
+            assert mock_hash.call_count == 1
+
+            # Subsequent calls within TTL should skip the hash check entirely
+            helper._refresh_cache_if_needed()
+            helper._refresh_cache_if_needed()
+            assert mock_hash.call_count == 1
+
+    def test_call_after_ttl_expires_hits_s3_again(self):
+        """After TTL expires, _compute_etag_hash should be called again."""
+        helper = self._make_helper()
+        helper._refresh_ttl_seconds = 0  # expire immediately
+
+        with patch.object(helper, "_compute_etag_hash", return_value="abc123") as mock_hash:
+            helper._refresh_cache_if_needed()
+            assert mock_hash.call_count == 1
+
+            helper._refresh_cache_if_needed()
+            assert mock_hash.call_count == 2
+
+    def test_first_load_always_hits_s3(self):
+        """When cache is None, S3 is always called regardless of TTL."""
+        helper = self._make_helper()
+        helper.correlation_rules_cache = None  # force first load
+
+        with patch.object(helper, "_compute_etag_hash", return_value="newhash") as mock_hash, \
+             patch.object(helper, "_load_correlation_rules", return_value=[]) as mock_load:
+            helper._refresh_cache_if_needed()
+            mock_hash.assert_called_once()
+            mock_load.assert_called_once()

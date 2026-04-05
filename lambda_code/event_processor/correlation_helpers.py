@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 import boto3
@@ -28,6 +29,8 @@ class CorrelationHelper:
         self.bucket_name = bucket_name
         self.correlation_rules_cache = None
         self.etag_hash = None
+        self._last_refresh_check = 0.0
+        self._refresh_ttl_seconds = 5
 
     def _load_correlation_rules(self) -> List[Dict[str, Any]]:
         """Load correlation rules from S3 bucket."""
@@ -91,10 +94,23 @@ class CorrelationHelper:
             return None
 
     def _refresh_cache_if_needed(self) -> None:
-        """Refresh the correlation rules cache if ETags have changed."""
+        """Refresh the correlation rules cache if ETags have changed.
+
+        Uses a short TTL so that multiple methods called within the same
+        Lambda invocation (has_matching_rule, is_lookfor_target,
+        find_correlations, find_reverse_correlations) only trigger one
+        S3 list_objects_v2 call instead of one per method.
+        """
+        now = time.monotonic()
+        if (self.correlation_rules_cache is not None and
+                now - self._last_refresh_check < self._refresh_ttl_seconds):
+            return
+
         current_hash = self._compute_etag_hash()
         if current_hash is None:
             return
+
+        self._last_refresh_check = now
 
         if self.correlation_rules_cache is None or self.etag_hash != current_hash:
             logger.info("Detected changes in postprocessing rules, refreshing cache")
