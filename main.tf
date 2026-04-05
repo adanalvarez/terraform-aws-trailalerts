@@ -60,6 +60,8 @@ module "lambda_event_processor" {
   trailalerts_alerts_queue_arn    = module.sqs.trailalerts_alerts_queue_arn
   trailalerts_detection_layer_arn = module.lambda_layer.trailalerts_detection_layer_arn
   trailalerts_alerts_topic_arn    = var.enable_sns ? module.sns[0].trailalerts_alerts_topic_arn : ""
+  webhook_url                     = var.webhook_url
+  webhook_headers                 = var.webhook_headers
 }
 
 
