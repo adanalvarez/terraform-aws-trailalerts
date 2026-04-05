@@ -12,7 +12,7 @@ Public [Terraform registry module](https://registry.terraform.io/modules/adanalv
 It is aimed at people/companies who do **not** need a SIEM but still want ownership of their detections and find CloudWatch or EventBridge rules hard to manage.
 
 * **Sigma rules:** Drop in community Sigma rules or write your own and version-control them with the rest of your infrastructure.
-* **Total control of the alerting pipeline:** Decide exactly what you want to see, correlate related events, and publish notifications via SNS or SES.
+* **Total control of the alerting pipeline:** Decide exactly what you want to see, correlate related events, and publish notifications via SNS, SES or webhook.
 * **Optional web dashboard:** Enable a fully integrated dashboard to browse alert history, manage Sigma rules, post-processing rules and exceptions.
 * **All-serverless:** Built on Lambda, S3, SQS and DynamoDB, so you pay only for what you actually run.
 
@@ -76,7 +76,7 @@ The system uses a serverless architecture built around AWS Lambda, SQS, DynamoDB
 3. When a log event matches a Sigma rule, it's sent to an SQS queue
 4. The Event Processor Lambda consumes messages from the queue
 5. If correlation is enabled, events are stored in DynamoDB for pattern matching
-6. If event matches the rules, alerts are sent via SNS or SES (SES recommended)
+6. If event matches the rules, alerts are sent via SNS, SES and/or webhook
 7. *(Optional)* If the dashboard is enabled, matched events are also stored in DynamoDB and can be browsed through the web UI
 
 ## Technical Details
@@ -278,11 +278,33 @@ Correlation adds context to alerts by showing related events, making it easier t
 
 The notification system supports:
 
-1. Email alerts
-2. SNS topic for simple configurations
-3. Severity-based filtering (only alert on certain severity levels)
-4. Cooldown periods to prevent alert fatigue
-5. Rich HTML emails with event details, resources affected, and context
+1. **SES email** — Rich HTML emails with event details, resources affected, and context
+2. **SNS topic** — Simple text notifications for quick integrations
+3. **Webhook** — JSON POST to any HTTP endpoint (e.g. Slack, PagerDuty, Tines, a custom SIEM ingestion URL). Supports custom headers for authentication.
+4. Severity-based filtering (only alert on certain severity levels)
+5. Cooldown periods to prevent alert fatigue
+
+Notification channels are **not mutually exclusive** — you can enable webhook alongside SES or SNS, or use webhook as the sole notification method.
+
+The webhook sends a JSON payload containing the full CloudTrail event, Sigma rule metadata, and any correlation or threshold context:
+
+```json
+{
+  "source": "TrailAlerts",
+  "timestamp": "2026-04-05T12:00:00+00:00",
+  "rule": {
+    "title": "AWS Console Login Without MFA",
+    "level": "high",
+    "description": "..."
+  },
+  "event": {
+    "eventName": "ConsoleLogin",
+    "eventSource": "signin.amazonaws.com",
+    "sourceIPAddress": "1.2.3.4",
+    "userIdentity": { "..." : "..." }
+  }
+}
+```
 
 ### Web Dashboard (Optional)
 
@@ -420,6 +442,23 @@ module "trailalerts" {
 }
 ```
 
+With webhook notifications (works alongside or instead of SES/SNS):
+
+```hcl
+module "trailalerts" {
+  source  = "adanalvarez/trailalerts/aws"
+  version = "0.2.2"
+
+  aws_region     = "us-west-2"
+  email_endpoint = "alerts@example.com"
+
+  webhook_url = "https://your-siem.example.com/api/webhook"
+  webhook_headers = {
+    "Authorization" = "Bearer your-token"
+  }
+}
+```
+
 After `terraform apply`, the dashboard URL is available in the `dashboard_url` output. Admin users receive a temporary password by email.
 
 If you already have a CloudTrail bucket, set `create_cloudtrail = false` and provide `existing_cloudtrail_bucket_name`.
@@ -487,6 +526,8 @@ Notes:
 | <a name="input_ses_identities"></a> [ses\_identities](#input\_ses\_identities) | List of SES identities to verify and use for email notifications | `list(string)` | `[]` | no |
 | <a name="input_source_email"></a> [source\_email](#input\_source\_email) | Email address to use as the source for email notifications | `string` | `""` | no |
 | <a name="input_vpnapi_key"></a> [vpnapi\_key](#input\_vpnapi\_key) | API key for VPN service integration | `string` | `""` | no |
+| <a name="input_webhook_url"></a> [webhook\_url](#input\_webhook\_url) | Webhook URL to POST alert notifications to. Works alongside or instead of SES/SNS | `string` | `""` | no |
+| <a name="input_webhook_headers"></a> [webhook\_headers](#input\_webhook\_headers) | Optional HTTP headers to include on webhook requests (e.g. Authorization tokens) | `map(string)` | `{}` | no |
 | <a name="input_enable_dashboard"></a> [enable\_dashboard](#input\_enable\_dashboard) | Whether to create the web dashboard (Cognito, API Gateway, Lambda, S3, CloudFront) | `bool` | `false` | no |
 | <a name="input_dashboard_admin_emails"></a> [dashboard\_admin\_emails](#input\_dashboard\_admin\_emails) | Email addresses created as admin users in the dashboard Cognito User Pool | `list(string)` | `[]` | no |
 

@@ -12,6 +12,7 @@ from correlation_helpers import CorrelationHelper
 from threshold_helpers import ThresholdHelper
 from notification_helpers import NotificationHelper
 from exception_helpers import ExceptionHelper
+from webhook_helpers import webhook_send
 from constants import SEVERITY_LEVELS, DEFAULT_MIN_SEVERITY
 from datetime import datetime, timedelta
 
@@ -153,7 +154,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     "source_email": os.environ.get("SOURCE_EMAIL"),
                     "destination_email": os.environ.get("EMAIL_RECIPIENT"),
                     "api_key": os.environ.get("VPNAPI_KEY"),
-                    "correlation_enabled": os.environ.get("CORRELATION_ENABLED", "false")
+                    "correlation_enabled": os.environ.get("CORRELATION_ENABLED", "false"),
+                    "webhook_url": os.environ.get("WEBHOOK_URL", ""),
+                    "webhook_headers": json.loads(os.environ.get("WEBHOOK_HEADERS", "{}"))
                 })
             except Exception as e:
                 logger.exception(f"Error processing SQS message{f' {message_id}' if message_id else ''}: {str(e)}")
@@ -423,10 +426,30 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
     
     # Debug logging to trace threshold information
     logger.info(f"DEBUG: Received threshold_info in send_notifications: {threshold_info}")
+
+    any_sent = False
+
+    # --- Webhook (independent of SES/SNS) ---
+    webhook_url = config.get("webhook_url")
+    if webhook_url:
+        logger.info("Sending notification via Webhook")
+        webhook_ok = webhook_send(
+            webhook_url,
+            config.get("webhook_headers", {}),
+            matched_event,
+            rule_metadata,
+            correlated_events,
+            threshold_info,
+        )
+        if webhook_ok:
+            any_sent = True
     
+    # --- SNS ---
     if config.get("sns_topic"):
         logger.info("Sending notification via SNS")
-        return sns_send_email(config["sns_topic"], matched_event, correlated_events, threshold_info, rule_metadata)
+        if sns_send_email(config["sns_topic"], matched_event, correlated_events, threshold_info, rule_metadata):
+            any_sent = True
+    # --- SES ---
     elif config.get("source_email") and config.get("destination_email"):
         sections = []
         
@@ -474,7 +497,7 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
         logger.info("Generating HTML email")
         email_html = generate_email_html(generate_style(), sections)
 
-        return ses_send_email(
+        if ses_send_email(
             email_html, 
             matched_event, 
             config["source_email"], 
@@ -482,7 +505,10 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
             rule_metadata,
             correlated_events,
             threshold_info
-        )
-    else:
-        logger.warning("No notification method configured - skipping notifications")
-        return False
+        ):
+            any_sent = True
+
+    if not any_sent:
+        logger.warning("No notification method configured or all methods failed - skipping notifications")
+
+    return any_sent

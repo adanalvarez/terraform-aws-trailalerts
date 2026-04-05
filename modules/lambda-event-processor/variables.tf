@@ -15,3 +15,5 @@ variable "trailalerts_rules_bucket" {}
 variable "trailalerts_alerts_queue_arn" {}
 variable "trailalerts_detection_layer_arn" {}
 variable "trailalerts_alerts_topic_arn" {}
+variable "webhook_url" {}
+variable "webhook_headers" {}

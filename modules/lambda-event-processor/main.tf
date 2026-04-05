@@ -28,6 +28,8 @@ resource "aws_lambda_function" "trailalerts_event_processor" {
       CORRELATION_RULES_BUCKET      = var.trailalerts_rules_bucket
       NOTIFICATION_COOLDOWN_MINUTES = tostring(var.notification_cooldown_minutes)
       MIN_NOTIFICATION_SEVERITY     = var.min_notification_severity
+      WEBHOOK_URL                   = var.webhook_url
+      WEBHOOK_HEADERS               = jsonencode(var.webhook_headers)
     }
   }
 

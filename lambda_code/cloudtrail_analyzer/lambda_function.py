@@ -547,8 +547,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
                 key = record['s3']['object']['key']
                 logger.info(f"Processing S3 object: Bucket={bucket}, Key={key}")
 
+                # Skip non-CloudTrail-log objects (e.g. digest files, config snapshots)
+                if 'CloudTrail-Digest' in key or not key.endswith('.json.gz'):
+                    logger.info(f"Skipping non-CloudTrail log object: {key}")
+                    continue
+
                 # Fetch and process the S3 object
                 content = fetch_s3_object(bucket, key)
+                if not content or not content.strip():
+                    logger.info(f"Skipping empty S3 object: Bucket={bucket}, Key={key}")
+                    continue
                 process_cloudtrail_records(content)
 
             except KeyError as ke:
