@@ -41,7 +41,7 @@ TrailAlerts fills that gap: the power to write your own rules without the cost o
     - [Exception Rules](#exception-rules)
     - [Post-Processing Rules](#post-processing-rules)
   - [Detection Rules](#detection-rules)
-  - [Correlation Engine](#correlation-engine)
+  - [Correlation and Threshold Engine](#correlation-and-threshold-engine)
   - [Notification System](#notification-system)
 - [Web Dashboard (Optional)](#web-dashboard-optional)
 - [Infrastructure](#infrastructure)
@@ -75,9 +75,9 @@ The system uses a serverless architecture built around AWS Lambda, SQS, DynamoDB
 2. The CloudTrail Analyzer Lambda function processes new log files as they arrive
 3. When a log event matches a Sigma rule, it's sent to an SQS queue
 4. The Event Processor Lambda consumes messages from the queue
-5. If correlation is enabled, events are stored in DynamoDB for pattern matching
-6. If event matches the rules, alerts are sent via SNS, SES and/or webhook
-7. *(Optional)* If the dashboard is enabled, matched events are also stored in DynamoDB and can be browsed through the web UI
+5. If `correlation_enabled` is enabled, events are stored in DynamoDB for alert history, cooldown tracking, threshold checks and correlation matching
+6. Matching events are filtered by severity/cooldown and then sent through the configured notification channels
+7. *(Optional)* If the dashboard is enabled, rules can be managed through the web UI; alert history and stats are available when DynamoDB is configured
 
 ## Technical Details
 
@@ -86,7 +86,7 @@ The system uses a serverless architecture built around AWS Lambda, SQS, DynamoDB
 The CloudTrail Analyzer Lambda (`SigmaCloudTrailAnalyzer`) is triggered by S3 events when new CloudTrail logs are delivered. It:
 
 1. Downloads and decompresses the CloudTrail log file
-2. Fetches and parses Sigma rules from the rules S3 bucket (Uses caching mechanisms to optimize rule processing performance)
+2. Fetches and parses Sigma rules from the rules S3 bucket, using warm-runtime caches to reduce repeated S3 list/get operations
 3. For each event in the log file, checks if it matches any Sigma rule
 4. When matches are found, formats the alert data and sends it to SQS
 
@@ -94,20 +94,23 @@ The analyzer uses an efficient, two-stage approach:
 - First pass: Fast filtering of events by eventSource and eventName
 - Second pass: Detailed rule evaluation with full pattern matching
 
-The Lambda implements a caching system that limits S3 list operations to at most once every 5 minutes, optimizing performance and reducing API call costs when frequently invoked.
+The Lambda implements a caching system that limits S3 list operations to at most once every 5 minutes, optimizing performance and reducing API call costs when frequently invoked. If a rule reload fails after a previous successful load, the analyzer keeps the last known good rule cache and index.
 
 ### Event Processor Lambda
 
 The Event Processor Lambda (`SigmaEventProcessor`) handles events from the SQS queue and:
 
 1. Extracts data from the event
-2. Check if the event should be excluded based on exception rules
+2. Checks if the event should be excluded based on exception rules
 3. If DynamoDB is enabled it:
-    - Implements cooldown periods to prevent alert flooding
-    - Checks correlation
-    - Checks alert threshold 
+  - Stores dashboard-visible alert history records
+  - Implements cooldown periods to prevent alert flooding
+  - Checks correlation rules
+  - Checks threshold rules
 4. Checks alert severity against notification thresholds
-5. Formats and sends notifications via SNS or SES
+5. Formats and sends notifications via webhook, SNS or SES depending on configuration
+
+SQS messages are processed with partial batch failure handling, so a failed message can be retried without forcing successful messages in the same batch to run again.
 
 Key modules in the Event Processor:
 - `lambda_function.py`: Main handler and orchestration
@@ -122,18 +125,20 @@ Key modules in the Event Processor:
 - `styles.py`: HTML email styling
 - `constants.py`: Configuration constants
 - `exception_helpers.py`: Exception handling and management
+- `webhook_helpers.py`: JSON webhook notification delivery
+- `plugins/`: Event-source plugin system used to route CloudTrail events and provide a generic fallback
 
 ### Rules Structure
 
-The system organizes detection rules in the following structure within the S3 bucket:
+The system organizes detection and post-processing configuration as objects in the TrailAlerts rules S3 bucket:
 
 ```
-rules/
+s3://<trailalerts-rules-bucket>/
 ├── sigma_rules/           # Contains Sigma YAML rule definitions
 │   ├── aws_cloudtrail_disable_logging.yml
 │   ├── aws_console_login_without_mfa.yml
 │   └── ...
-├── exception.json         # Exception rules for filtering out benign events
+├── exceptions.json        # Exception rules for filtering out benign events
 └── postprocessing_rules/  # Contains post-processing rules
     ├── correlation_iam.json  # Correlation rules focused on IAM
     ├── correlation_s3.json   # Correlation rules focused on S3 operations
@@ -143,9 +148,9 @@ rules/
 
 #### Exception Rules
 
-Exception rules (defined in `exception.json`) allow you to suppress alerts based on specific criteria such as source IP addresses or user identities. These exceptions prevent notification fatigue from known legitimate activities.
+Exception rules (defined in `exceptions.json`) allow you to suppress alerts based on specific criteria such as source IP addresses or user identities. These exceptions prevent notification fatigue from known legitimate activities.
 
-Example `exception.json` structure:
+Example `exceptions.json` structure:
 ```json
 {
     "AWS SecretsManager GetSecretValue": {
@@ -199,6 +204,8 @@ Each correlation rule includes:
 - `severity_adjustment`: How to adjust severity when correlation is found
 - `description`: Description of the correlation pattern
 
+Correlation is checked in both directions. If the triggering event arrives before the `lookFor` event, or the `lookFor` event arrives first, the processor can still identify the relationship as long as both events are within the configured window.
+
 ##### 2. Threshold Rules:
 Threshold rules detect when the same alert occurs multiple times within a time window.
 
@@ -227,7 +234,7 @@ You can add multiple rule files to the post-processing directory, and the Lambda
 
 ### Detection Rules
 
-The system uses Sigma rules stored in YAML format in the `/rules` directory. Each rule consists of:
+The system uses Sigma rules stored in YAML format under the `sigma_rules/` S3 prefix. Each rule consists of:
 
 - Title and description
 - Tags and references
@@ -263,16 +270,18 @@ falsepositives:
 level: medium
 ```
 
-Each rule has a corresponding test file (`*_tests.json`) that contains test cases to validate the rule.
+Rules can be uploaded directly to S3 or managed through the optional dashboard, which validates that the YAML has the required Sigma fields before saving.
 
-### Correlation Engine
+### Correlation and Threshold Engine
 
-When enabled, the correlation engine stores alerts in DynamoDB with TTL-based expiration. It can detect:
+When `correlation_enabled = true`, TrailAlerts creates a DynamoDB table used for alert history, cooldown state, correlation tracking and threshold windows. Records are written with TTL-based expiration so old investigation context is cleaned up automatically.
 
-1. Frequency-based patterns (multiple occurrences of the same event type)
-2. Sequence-based patterns (specific events in a particular order)
+The event processor supports two kinds of post-processing logic:
 
-Correlation adds context to alerts by showing related events, making it easier to identify more sophisticated attack patterns such as privilege escalation chains or multi-stage attacks.
+1. **Correlation rules** detect relationships between different Sigma rule titles within a configured time window. These are useful for multi-step activity such as user creation followed by policy attachment.
+2. **Threshold rules** detect repeated occurrences of the same Sigma rule by the same actor within a configured time window.
+
+Correlation and threshold matches can raise the alert severity and add context to notifications and dashboard records, making it easier to investigate privilege escalation chains, repeated access patterns or other multi-stage behavior.
 
 ### Notification System
 
@@ -284,7 +293,7 @@ The notification system supports:
 4. Severity-based filtering (only alert on certain severity levels)
 5. Cooldown periods to prevent alert fatigue
 
-Notification channels are **not mutually exclusive** — you can enable webhook alongside SES or SNS, or use webhook as the sole notification method.
+Webhook notifications can run alongside the configured email path. When SNS is enabled, the processor publishes to SNS; when SNS is not configured and SES settings are present, the processor falls back to SES. SNS and SES are therefore alternatives, while webhook is additive.
 
 The webhook sends a JSON payload containing the full CloudTrail event, Sigma rule metadata, and any correlation or threshold context:
 
@@ -312,7 +321,7 @@ When `enable_dashboard = true`, TrailAlerts deploys a lightweight web dashboard 
 
 The dashboard lets you:
 
-- **View alert history** — browse, filter and sort alerts by time, severity, rule name, or actor with paginated results.
+- **View alert history** — browse, filter and sort alerts by time, severity, rule name, or actor with paginated results when DynamoDB is enabled.
 - **Manage Sigma rules** — create, edit and delete Sigma rules directly in a YAML editor without touching S3.
 - **Manage post-processing rules** — add or modify correlation and threshold rules from the UI.
 - **Manage exceptions** — define excluded actors, IPs and regex patterns per rule.
@@ -325,15 +334,17 @@ The dashboard lets you:
 | Authentication | Cognito User Pool with username/password + optional MFA |
 | API | API Gateway (HTTP) → Lambda (`DashboardAPI`) |
 | Frontend | S3 (static site) → CloudFront |
-| Storage | Same DynamoDB table used by the Event Processor |
+| Storage | Same DynamoDB table used by the Event Processor, required for alert history and stats |
 
 The frontend is a zero-dependency vanilla JS application served via CloudFront, with the API proxied through the same distribution under `/api/*`.
 
 Admin users are created from the `dashboard_admin_emails` variable and receive a temporary password by email on first deploy.
 
+Rule, post-processing and exception management works through S3. Alert history, alert detail and overview statistics require `correlation_enabled = true`, because that is what creates and wires the DynamoDB table used by both the Event Processor and dashboard API.
+
 ## Infrastructure
 
-The infrastructure is defined using Terraform in the `/terraform` directory. Key components include:
+The infrastructure is defined as a reusable Terraform module at the repository root, with implementation split across the `modules/` directory. Key components include:
 
 - Lambda functions with appropriate IAM roles and permissions
 - SQS queue for alert message handling
@@ -343,7 +354,7 @@ The infrastructure is defined using Terraform in the `/terraform` directory. Key
 - SNS topics for notifications (optional)
 - Cognito User Pool, API Gateway, CloudFront and S3 static site for the dashboard (optional)
 
-Infrastructure is parameterized through Terraform variables in `terraform.tfvars.json`, allowing for easy customization of:
+Infrastructure is parameterized through module variables, allowing for easy customization of:
 
 - Email source and destination
 - Notification settings
@@ -351,15 +362,13 @@ Infrastructure is parameterized through Terraform variables in `terraform.tfvars
 - Security thresholds
 - Correlation options
 
-## Enrichment
-
 ### Enrichment
 
 TrailAlerts supports basic alert enrichment to provide additional context for detected events. By integrating with external services, you can enhance the information included in alert notifications.
 
 #### VPNAPI.io Integration
 
-To enrich alerts with IP-related information, you can use the [VPNAPI.io](https://vpnapi.io/) service. This requires an API key, which can be added to the `terraform/terraform.tfvars.json` file using the `vpnapi_key` variable.
+To enrich alerts with IP-related information, you can use the [VPNAPI.io](https://vpnapi.io/) service. This requires an API key, which can be passed through the `vpnapi_key` module variable.
 
 When the API key is configured, TrailAlerts will query VPNAPI.io for details about the source IP address associated with an event. The enriched data will be included in email notifications, providing insights such as:
 
@@ -376,14 +385,17 @@ TrailAlerts supports a subset of the Sigma rule format, specifically optimized f
 Compatible rule features:
 - **Field exact matching**: Exact matching on fields like `eventSource: ec2.amazonaws.com`
 - **List matching**: Match any value from a list, e.g., `eventName: ["AuthorizeSecurityGroupEgress", "AuthorizeSecurityGroupIngress"]`
+- **Nested CloudTrail fields**: Dot-notation lookups such as `userIdentity.type`
+- **String modifiers**: `|contains`, `|startswith`, `|endswith` and `|re`
+- **Field references**: Basic `|fieldref` comparisons between values in the same CloudTrail event
 - **Simple condition logic**: Rules can use basic conditions like `condition: selection` or `condition: 1 of selection_*`
-- **Basic logical operations**: AND logic is implied when multiple fields are in the same selection block
+- **Basic logical operations**: AND logic is implied when multiple fields are in the same selection block; simple `and`, `or` and `not` expressions are supported between detection blocks
 
 The system uses a two-stage approach to efficiently process rules:
 1. Fast initial filtering by `eventSource` and `eventName`
 2. More detailed pattern matching on the filtered events
 
-To see examples of compatible rules, examine the rules directory which contains over 50 pre-built rules with their associated test files. For instance, `aws_cloudtrail_disable_logging.yml` and its test file `aws_cloudtrail_disable_logging_tests.json`.
+The matcher is intentionally optimized for CloudTrail detections rather than the full Sigma specification. Rules that include exact `eventSource` and `eventName` values are indexed for fast candidate selection; rules that use modifiers or do not expose both fields are evaluated as wildcard candidates.
 
 ## Cost Considerations
 
@@ -424,6 +436,7 @@ module "trailalerts" {
 
   aws_region     = "us-west-2"
   email_endpoint = "alerts@example.com"
+  source_email   = "alerts@example.com"
 }
 ```
 
@@ -436,13 +449,15 @@ module "trailalerts" {
 
   aws_region     = "us-west-2"
   email_endpoint = "alerts@example.com"
+  source_email   = "alerts@example.com"
 
+  correlation_enabled   = true
   enable_dashboard       = true
   dashboard_admin_emails = ["admin@example.com"]
 }
 ```
 
-With webhook notifications (works alongside or instead of SES/SNS):
+With webhook notifications (runs alongside SNS by default):
 
 ```hcl
 module "trailalerts" {
@@ -451,6 +466,7 @@ module "trailalerts" {
 
   aws_region     = "us-west-2"
   email_endpoint = "alerts@example.com"
+  source_email   = "alerts@example.com"
 
   webhook_url = "https://your-siem.example.com/api/webhook"
   webhook_headers = {
@@ -463,10 +479,11 @@ After `terraform apply`, the dashboard URL is available in the `dashboard_url` o
 
 If you already have a CloudTrail bucket, set `create_cloudtrail = false` and provide `existing_cloudtrail_bucket_name`.
 
-See the `examples/` folder for a runnable example. Required variables: `aws_region` and `email_endpoint`. Common outputs include CloudWatch Log Group ARNs: `trailalerts_cloudtrail_analyzer_log_group_arn` and `trailalerts_event_processor_log_group_arn`.
+See the `examples/` folder for a runnable example. Required Terraform variables are `aws_region` and `email_endpoint`; the current Event Processor runtime also expects `source_email` to be non-empty. Common outputs include CloudWatch Log Group ARNs: `trailalerts_cloudtrail_analyzer_log_group_arn` and `trailalerts_event_processor_log_group_arn`.
 
 Notes:
-- To use SES, verify `source_email` and ensure the account is out of the SES sandbox.
+- To use SES delivery, verify `source_email` and ensure the account is out of the SES sandbox. With SNS enabled, SNS is used for email delivery and SES is not used.
+- To use the dashboard's alert history and overview statistics, set `correlation_enabled = true` so the shared DynamoDB table is created.
 - Check Lambda logs in CloudWatch for debugging.
 - For most quick tests, upload a sample CloudTrail log to the configured S3 bucket and confirm messages appear in the SQS queue.
 
@@ -526,7 +543,7 @@ Notes:
 | <a name="input_ses_identities"></a> [ses\_identities](#input\_ses\_identities) | List of SES identities to verify and use for email notifications | `list(string)` | `[]` | no |
 | <a name="input_source_email"></a> [source\_email](#input\_source\_email) | Email address to use as the source for email notifications | `string` | `""` | no |
 | <a name="input_vpnapi_key"></a> [vpnapi\_key](#input\_vpnapi\_key) | API key for VPN service integration | `string` | `""` | no |
-| <a name="input_webhook_url"></a> [webhook\_url](#input\_webhook\_url) | Webhook URL to POST alert notifications to. Works alongside or instead of SES/SNS | `string` | `""` | no |
+| <a name="input_webhook_url"></a> [webhook\_url](#input\_webhook\_url) | Webhook URL to POST alert notifications to. Runs alongside the configured SNS or SES notification path | `string` | `""` | no |
 | <a name="input_webhook_headers"></a> [webhook\_headers](#input\_webhook\_headers) | Optional HTTP headers to include on webhook requests (e.g. Authorization tokens) | `map(string)` | `{}` | no |
 | <a name="input_enable_dashboard"></a> [enable\_dashboard](#input\_enable\_dashboard) | Whether to create the web dashboard (Cognito, API Gateway, Lambda, S3, CloudFront) | `bool` | `false` | no |
 | <a name="input_dashboard_admin_emails"></a> [dashboard\_admin\_emails](#input\_dashboard\_admin\_emails) | Email addresses created as admin users in the dashboard Cognito User Pool | `list(string)` | `[]` | no |
