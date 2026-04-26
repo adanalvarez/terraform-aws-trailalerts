@@ -26,6 +26,12 @@ variable "existing_cloudtrail_bucket_name" {
   default     = ""
 }
 
+variable "cloudtrail_log_filter_prefix" {
+  description = "Optional S3 object key prefix used to limit CloudTrail Analyzer Lambda invocations. Leave null to process CloudTrail JSON gzip objects anywhere in the bucket."
+  type        = string
+  default     = null
+}
+
 variable "enable_sns" {
   description = "Whether to create SNS topic and subscription"
   type        = bool

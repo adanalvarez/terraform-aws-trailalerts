@@ -84,6 +84,7 @@ module "lambda_cloudtrail_analyzer" {
   trailalerts_alerts_queue_url    = module.sqs.trailalerts_alerts_queue_url
   trailalerts_detection_layer_arn = module.lambda_layer.trailalerts_detection_layer_arn
   trailalerts_rules_bucket        = module.s3.trailalerts_rules_bucket_name
+  cloudtrail_log_filter_prefix    = var.cloudtrail_log_filter_prefix
 }
 
 # ---------------------------------------------------------------------------

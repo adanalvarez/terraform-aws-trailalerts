@@ -90,6 +90,8 @@ resource "aws_s3_bucket_notification" "cloudtrail_logs_notification" {
   lambda_function {
     lambda_function_arn = aws_lambda_function.trailalerts_cloudtrail_analyzer.arn
     events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = var.cloudtrail_log_filter_prefix
+    filter_suffix       = ".json.gz"
   }
 
   depends_on = [

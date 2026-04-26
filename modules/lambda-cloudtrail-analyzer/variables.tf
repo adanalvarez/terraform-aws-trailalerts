@@ -9,6 +9,12 @@ variable "trailalerts_alerts_queue_url" {}
 variable "trailalerts_detection_layer_arn" {}
 variable "trailalerts_rules_bucket" {}
 
+variable "cloudtrail_log_filter_prefix" {
+  description = "Optional S3 object key prefix used to limit CloudTrail Analyzer Lambda invocations. Leave null to process CloudTrail JSON gzip objects anywhere in the bucket."
+  type        = string
+  default     = null
+}
+
 variable "analyzer_memory_size" {
   description = "Memory size in MB for the CloudTrail analyzer Lambda. CPU scales linearly with memory; 1769 MB = 1 full vCPU."
   type        = number
