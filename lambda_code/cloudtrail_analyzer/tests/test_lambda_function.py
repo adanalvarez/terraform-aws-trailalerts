@@ -96,6 +96,12 @@ class TestBuildRuleIndex:
         _, wildcards = build_rule_index(rules)
         assert len(wildcards) == 1
 
+    def test_non_dict_detection_goes_to_wildcard(self):
+        rules = [{"title": "R1", "detection": ["not", "a", "dict"]}]
+        indexed, wildcards = build_rule_index(rules)
+        assert indexed == {}
+        assert len(wildcards) == 1
+
     def test_modifier_on_event_source_goes_to_wildcard(self):
         """Fields with modifiers like |contains should NOT be indexed."""
         rules = [_rule("R1", {
@@ -309,6 +315,7 @@ class TestSigmaRuleLoading:
         objects = [
             {"Key": "sigma_rules/good.yaml"},
             {"Key": "sigma_rules/bad.yaml"},
+            {"Key": "sigma_rules/invalid.yaml"},
             {"Key": "sigma_rules/ignore.txt"},
         ]
 
@@ -323,6 +330,8 @@ class TestSigmaRuleLoading:
                 }
             if Key == "sigma_rules/bad.yaml":
                 return {"Body": MagicMock(read=MagicMock(return_value=b"title: [broken"))}
+            if Key == "sigma_rules/invalid.yaml":
+                return {"Body": MagicMock(read=MagicMock(return_value=b"title: Parsed But Invalid\n"))}
             raise AssertionError(f"Unexpected S3 key requested: {Key}")
 
         with patch.object(lambda_function, "list_s3_objects_cached", return_value=objects), \
@@ -333,6 +342,18 @@ class TestSigmaRuleLoading:
 
         assert len(rules) == 1
         assert rules[0]["title"] == "Good Rule"
+
+    def test_load_sigma_rules_raises_when_all_parsed_documents_are_invalid(self):
+        objects = [{"Key": "sigma_rules/invalid.yaml"}]
+
+        with patch.object(lambda_function, "list_s3_objects_cached", return_value=objects), \
+             patch.object(lambda_function, "s3_client") as mock_s3:
+            mock_s3.get_object.return_value = {
+                "Body": MagicMock(read=MagicMock(return_value=b"title: Missing Detection\n"))
+            }
+
+            with pytest.raises(RuntimeError, match="No valid Sigma rules"):
+                load_sigma_rules("test-bucket")
 
     def test_reload_sigma_rules_if_needed_keeps_last_good_cache_on_invalid_refresh(self):
         existing_rule = _simple_rule("Existing Rule", "iam.amazonaws.com", "CreateUser")
@@ -476,6 +497,35 @@ class TestFlushSqsBatch:
 # Failure propagation
 # ---------------------------------------------------------------------------
 class TestFailurePropagation:
+    def test_process_cloudtrail_records_returns_summary_metrics(self):
+        rule = {"title": "R1"}
+        content = json.dumps({
+            "Records": [
+                {"eventSource": "iam.amazonaws.com", "eventName": "CreateUser"},
+                {"eventSource": "iam.amazonaws.com", "eventName": "DeleteUser"},
+            ]
+        })
+
+        lambda_function.sigma_rules_cache = [rule]
+        lambda_function.rule_index = {("iam.amazonaws.com", "CreateUser"): [rule]}
+        lambda_function.wildcard_rules = []
+
+        with patch.object(lambda_function, "get_candidate_rules", return_value=[rule]), \
+             patch.object(lambda_function, "matches_sigma_rule", side_effect=[True, False]), \
+             patch.object(lambda_function, "_build_sqs_message", return_value={"Id": "a1", "MessageBody": "{}"}), \
+             patch.object(lambda_function, "_flush_sqs_batch"):
+            summary = lambda_function.process_cloudtrail_records(content)
+
+        assert summary["cloudtrail_records_count"] == 2
+        assert summary["rules_loaded"] == 1
+        assert summary["indexed_rules"] == 1
+        assert summary["indexed_rule_keys"] == 1
+        assert summary["wildcard_rules"] == 0
+        assert summary["candidate_count"] == 2
+        assert summary["matches"] == 1
+        assert summary["sqs_batches"] == 1
+        assert summary["sqs_messages_sent"] == 1
+
     def test_process_cloudtrail_records_reraises_batch_failures(self):
         content = json.dumps({
             "Records": [{"eventSource": "iam.amazonaws.com", "eventName": "CreateUser"}]

@@ -6,9 +6,7 @@ import logging
 import yaml
 import hashlib
 import time
-import uuid
-from collections import defaultdict
-from typing import Dict, List, Any, Optional, Tuple, Set
+from typing import Dict, List, Any, Optional, Tuple
 from sigma_matcher import matches_sigma_rule
 
 logger = logging.getLogger()
@@ -78,6 +76,39 @@ def compute_s3_files_hash(bucket_name: str) -> str:
         return ""
 
 
+def _is_valid_sigma_rule(rule: Any) -> bool:
+    """Return True when a parsed YAML document looks like a usable Sigma rule."""
+    if not isinstance(rule, dict):
+        return False
+
+    detection = rule.get('detection')
+    if not isinstance(detection, dict):
+        return False
+
+    condition = detection.get('condition', 'selection')
+    if condition is not None and not isinstance(condition, str):
+        return False
+
+    return any(
+        block_name != 'condition' and isinstance(block, dict)
+        for block_name, block in detection.items()
+    )
+
+
+def _extract_valid_sigma_rules(parsed_yaml: Any, key: str) -> List[Dict[str, Any]]:
+    """Normalize a YAML document or list of documents into validated Sigma rules."""
+    documents = parsed_yaml if isinstance(parsed_yaml, list) else [parsed_yaml]
+    valid_rules = []
+
+    for index, rule in enumerate(documents):
+        if _is_valid_sigma_rule(rule):
+            valid_rules.append(rule)
+        else:
+            logger.error(f"Skipping invalid Sigma rule document in {key} at index {index}")
+
+    return valid_rules
+
+
 def load_sigma_rules(bucket: str) -> List[Dict[str, Any]]:
     """Load all Sigma YAML rules from S3, skipping individual bad files."""
     objects = list_s3_objects_cached(bucket, "sigma_rules/")
@@ -91,7 +122,11 @@ def load_sigma_rules(bucket: str) -> List[Dict[str, Any]]:
                 logger.info(f"Loading Sigma rule: {key}")
                 content = s3_client.get_object(Bucket=bucket, Key=key)['Body'].read().decode('utf-8')
                 rules = yaml.safe_load(content)
-                sigma_rules.extend(rules if isinstance(rules, list) else [rules])
+                valid_rules = _extract_valid_sigma_rules(rules, key)
+                if not valid_rules:
+                    errors += 1
+                    continue
+                sigma_rules.extend(valid_rules)
             except Exception as e:
                 errors += 1
                 logger.error(f"Error loading Sigma rule {key}: {e}")
@@ -108,8 +143,12 @@ def build_rule_index(rules: List[Dict[str, Any]]) -> Tuple[Dict[Tuple[str, str],
     wildcards: List[Dict[str, Any]] = []
 
     for rule in rules:
+        if not isinstance(rule, dict):
+            logger.warning(f"Skipping non-dict Sigma rule during indexing: {type(rule)}")
+            continue
+
         detection = rule.get('detection', {})
-        if not detection:
+        if not isinstance(detection, dict) or not detection:
             wildcards.append(rule)
             continue
 
@@ -168,23 +207,6 @@ def get_candidate_rules(record: Dict[str, Any]) -> List[Dict[str, Any]]:
         candidates.extend(wildcard_rules)
 
     return candidates
-
-    if not sigma_rules:
-        error_message = (
-            f"No valid Sigma rules could be loaded from s3://{bucket}/sigma_rules/ "
-            f"({yaml_files_seen} YAML file(s) scanned, {len(failed_files)} file(s) failed)"
-        )
-        logger.error(error_message)
-        raise RuntimeError(error_message)
-
-    if failed_files:
-        logger.warning(
-            f"Loaded {len(sigma_rules)} Sigma rule(s) while skipping {len(failed_files)} invalid file(s)"
-        )
-    else:
-        logger.info(f"Loaded {len(sigma_rules)} Sigma rule(s) from {yaml_files_seen} YAML file(s)")
-
-    return sigma_rules
 
 
 def reload_sigma_rules_if_needed() -> None:
@@ -282,32 +304,76 @@ def _flush_sqs_batch(messages: List[Dict[str, str]]) -> None:
     )
 
 
-def process_cloudtrail_records(content: str) -> None:
+def _count_indexed_rules() -> int:
+    """Count distinct rules reachable through the fast lookup index."""
+    if not rule_index:
+        return 0
+    return len({id(rule) for rules in rule_index.values() for rule in rules})
+
+
+def _current_rule_metrics() -> Dict[str, int]:
+    """Return low-cost rule cache/index counters for summary logging."""
+    return {
+        "rules_loaded": len(sigma_rules_cache or []),
+        "indexed_rules": _count_indexed_rules(),
+        "indexed_rule_keys": len(rule_index or {}),
+        "wildcard_rules": len(wildcard_rules or []),
+    }
+
+
+def _log_processing_summary(summary: Dict[str, Any]) -> None:
+    """Emit one structured summary line per processed CloudTrail object."""
+    logger.info(json.dumps({"message": "cloudtrail_analyzer_summary", **summary}, sort_keys=True))
+
+
+def process_cloudtrail_records(content: str) -> Dict[str, int]:
     """Process CloudTrail records against Sigma rules with batched SQS sending."""
     records = json.loads(content).get('Records', [])
     sqs_batch: List[Dict[str, str]] = []
     errors = 0
+    metrics = {
+        "cloudtrail_records_count": len(records),
+        "candidate_count": 0,
+        "matches": 0,
+        "sqs_batches": 0,
+        "sqs_messages_sent": 0,
+        **_current_rule_metrics(),
+    }
+
+    def flush_batch() -> None:
+        nonlocal sqs_batch
+        if not sqs_batch:
+            return
+        batch_size = len(sqs_batch)
+        _flush_sqs_batch(sqs_batch)
+        metrics["sqs_batches"] += 1
+        metrics["sqs_messages_sent"] += batch_size
+        sqs_batch = []
 
     for record in records:
         try:
             logger.debug("Processing record: %s", record.get('eventName', 'Unknown'))
-            for rule in get_candidate_rules(record):
+            candidate_rules = get_candidate_rules(record)
+            metrics["candidate_count"] += len(candidate_rules)
+            for rule in candidate_rules:
                 if matches_sigma_rule(record, rule):
+                    metrics["matches"] += 1
                     sqs_batch.append(_build_sqs_message(rule, record))
                     if len(sqs_batch) >= SQS_BATCH_SIZE:
-                        _flush_sqs_batch(sqs_batch)
-                        sqs_batch = []
+                        flush_batch()
         except Exception as e:
             errors += 1
             logger.error(f"Error processing record: {e}")
 
     try:
-        _flush_sqs_batch(sqs_batch)
+        flush_batch()
     except Exception as e:
         raise RuntimeError(f"CloudTrail record processing failure: {e}") from e
 
     if errors:
         raise RuntimeError(f"{errors} CloudTrail record processing failure(s)")
+
+    return metrics
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
@@ -318,6 +384,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
 
     for record in event.get('Records', []):
         try:
+            start_time = time.perf_counter()
             bucket = record['s3']['bucket']['name']
             key = record['s3']['object']['key']
 
@@ -334,7 +401,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, str]:
                 logger.warning(f"Empty content from S3 object: {key}")
                 continue
 
-            process_cloudtrail_records(content)
+            summary = process_cloudtrail_records(content) or {}
+            summary.update({
+                "bucket": bucket,
+                "key": key,
+                "duration_ms": int((time.perf_counter() - start_time) * 1000),
+            })
+            _log_processing_summary(summary)
 
         except KeyError as ke:
             s3_errors += 1

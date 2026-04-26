@@ -83,7 +83,7 @@ The system uses a serverless architecture built around AWS Lambda, SQS, DynamoDB
 
 ### CloudTrail Analyzer Lambda
 
-The CloudTrail Analyzer Lambda (`SigmaCloudTrailAnalyzer`) is triggered by S3 events when new CloudTrail logs are delivered. It:
+The CloudTrail Analyzer Lambda (`SigmaCloudTrailAnalyzer`) is triggered by S3 events when new CloudTrail gzip logs are delivered. The S3 notification is filtered to `.json.gz` objects before invocation, and you can optionally narrow it further with `cloudtrail_log_filter_prefix` for existing buckets that store CloudTrail logs under a known prefix. It:
 
 1. Downloads and decompresses the CloudTrail log file
 2. Fetches and parses Sigma rules from the rules S3 bucket, using warm-runtime caches to reduce repeated S3 list/get operations
@@ -482,6 +482,7 @@ If you already have a CloudTrail bucket, set `create_cloudtrail = false` and pro
 See the `examples/` folder for a runnable example. Required Terraform variables are `aws_region` and `email_endpoint`; the current Event Processor runtime also expects `source_email` to be non-empty. Common outputs include CloudWatch Log Group ARNs: `trailalerts_cloudtrail_analyzer_log_group_arn` and `trailalerts_event_processor_log_group_arn`.
 
 Notes:
+- The analyzer Lambda S3 trigger only invokes on `.json.gz` objects. For existing buckets with a known CloudTrail path prefix, set `cloudtrail_log_filter_prefix` to reduce unnecessary Lambda invocations further.
 - To use SES delivery, verify `source_email` and ensure the account is out of the SES sandbox. With SNS enabled, SNS is used for email delivery and SES is not used.
 - To use the dashboard's alert history and overview statistics, set `correlation_enabled = true` so the shared DynamoDB table is created.
 - Check Lambda logs in CloudWatch for debugging.
@@ -529,6 +530,7 @@ Notes:
 |------|-------------|------|---------|:--------:|
 | <a name="input_aws_region"></a> [aws\_region](#input\_aws\_region) | The AWS region where all resources will be deployed | `string` | n/a | yes |
 | <a name="input_cloudwatch_logs_retention_days"></a> [cloudwatch\_logs\_retention\_days](#input\_cloudwatch\_logs\_retention\_days) | Number of days to retain CloudWatch logs before automatic deletion | `number` | `30` | no |
+| <a name="input_cloudtrail_log_filter_prefix"></a> [cloudtrail\_log\_filter\_prefix](#input\_cloudtrail\_log\_filter\_prefix) | Optional S3 object key prefix used to limit CloudTrail Analyzer Lambda invocations. Leave null to process CloudTrail JSON gzip objects anywhere in the bucket. | `string` | `null` | no |
 | <a name="input_correlation_enabled"></a> [correlation\_enabled](#input\_correlation\_enabled) | Whether to enable event correlation analysis - creates a DynamoDB table for storing and analyzing security events | `bool` | `false` | no |
 | <a name="input_create_cloudtrail"></a> [create\_cloudtrail](#input\_create\_cloudtrail) | Whether to create CloudTrail and S3 bucket or use existing | `bool` | `true` | no |
 | <a name="input_email_endpoint"></a> [email\_endpoint](#input\_email\_endpoint) | Email address that will receive security notifications and alerts | `string` | n/a | yes |
