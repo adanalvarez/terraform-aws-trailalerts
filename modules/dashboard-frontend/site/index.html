@@ -8,59 +8,59 @@
 </head>
 <body>
 
-<!-- ============================================================
-     Login Screen
-     ============================================================ -->
 <div id="login-screen" class="login-screen">
-    <div class="login-card">
+    <section class="login-card" aria-labelledby="login-title">
         <div class="login-accent"></div>
         <div class="login-content">
-            <img src="/logo.png" alt="${project_name}" style="height:48px; width:auto; margin-bottom:20px;">
-            <h2>Security Dashboard</h2>
-            <p>Detection rules, alert monitoring &amp; security management</p>
+            <img src="/logo.png" alt="${project_name}" class="login-logo">
+            <h1 id="login-title">trailalerts</h1>
+            <p>Review alerts, tune Sigma rules, and manage investigation guardrails.</p>
 
-            <div id="login-error" class="login-error"></div>
+            <div id="login-error" class="login-error" role="alert"></div>
 
-            <!-- Step 1: Credentials -->
             <div id="login-step-credentials" class="login-step active">
-                <form class="login-form" onsubmit="handleLogin(event)">
+                <form id="login-form-credentials" class="login-form">
                     <div class="login-field">
                         <label class="login-label" for="login-email">Email</label>
                         <input class="login-input" id="login-email" type="email" placeholder="you@company.com" required autocomplete="username">
                     </div>
                     <div class="login-field">
                         <label class="login-label" for="login-password">Password</label>
-                        <input class="login-input" id="login-password" type="password" placeholder="Enter your password" required autocomplete="current-password">
+                        <div class="password-control">
+                            <input class="login-input" id="login-password" type="password" placeholder="Enter your password" required autocomplete="current-password">
+                            <button type="button" class="password-toggle" data-action="toggle-password" data-target="login-password" aria-label="Show password">Show</button>
+                        </div>
                     </div>
                     <div class="login-links">
-                        <button type="button" class="login-link" onclick="showForgotPassword()">Forgot password?</button>
+                        <button type="button" class="login-link" data-action="forgot-password">Forgot password?</button>
                     </div>
-                    <button type="submit" class="btn-login" id="login-btn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:10px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        Sign In
-                    </button>
+                    <button type="submit" class="btn-login" id="login-btn">Sign in</button>
                 </form>
             </div>
 
-            <!-- Step 2: New Password Required -->
             <div id="login-step-newpassword" class="login-step">
-                <form class="login-form" onsubmit="handleNewPassword(event)">
-                    <p class="login-note">Your administrator requires you to set a new password.</p>
+                <form id="login-form-newpassword" class="login-form">
+                    <p class="login-note">Set a new password to finish activating your dashboard account.</p>
                     <div class="login-field">
                         <label class="login-label" for="new-password">New Password</label>
-                        <input class="login-input" id="new-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                        <div class="password-control">
+                            <input class="login-input" id="new-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                            <button type="button" class="password-toggle" data-action="toggle-password" data-target="new-password" aria-label="Show password">Show</button>
+                        </div>
                     </div>
                     <div class="login-field">
                         <label class="login-label" for="confirm-password">Confirm Password</label>
-                        <input class="login-input" id="confirm-password" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                        <div class="password-control">
+                            <input class="login-input" id="confirm-password" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                            <button type="button" class="password-toggle" data-action="toggle-password" data-target="confirm-password" aria-label="Show password">Show</button>
+                        </div>
                     </div>
-                    <button type="submit" class="btn-login" id="newpass-btn">Set Password</button>
+                    <button type="submit" class="btn-login" id="newpass-btn">Set password</button>
                 </form>
             </div>
 
-            <!-- Step 3: MFA Code -->
             <div id="login-step-mfa" class="login-step">
-                <form class="login-form" onsubmit="handleMfa(event)">
+                <form id="login-form-mfa" class="login-form">
                     <p class="login-note">Enter the 6-digit code from your authenticator app.</p>
                     <div class="login-field">
                         <label class="login-label" for="mfa-code">Verification Code</label>
@@ -70,136 +70,263 @@
                 </form>
             </div>
 
-            <!-- Step 4: Forgot Password -->
             <div id="login-step-forgot" class="login-step">
-                <form class="login-form" onsubmit="handleForgotPassword(event)">
-                    <p class="login-note">Enter your email and we'll send a verification code to reset your password.</p>
+                <form id="login-form-forgot" class="login-form">
+                    <p class="login-note">Enter your email and TrailAlerts will send a reset code.</p>
                     <div class="login-field">
                         <label class="login-label" for="forgot-email">Email</label>
                         <input class="login-input" id="forgot-email" type="email" placeholder="you@company.com" required autocomplete="username">
                     </div>
-                    <button type="submit" class="btn-login" id="forgot-btn">Send Code</button>
-                    <div style="margin-top:16px; text-align:center;">
-                        <button type="button" class="login-link" onclick="showLoginStep('credentials')">Back to sign in</button>
+                    <button type="submit" class="btn-login" id="forgot-btn">Send code</button>
+                    <div class="login-return">
+                        <button type="button" class="login-link" data-action="show-login" data-step="credentials">Back to sign in</button>
                     </div>
                 </form>
             </div>
 
-            <!-- Step 5: Reset Password -->
             <div id="login-step-reset" class="login-step">
-                <form class="login-form" onsubmit="handleResetPassword(event)">
-                    <p class="login-note">Enter the verification code sent to your email and choose a new password.</p>
+                <form id="login-form-reset" class="login-form">
+                    <p class="login-note">Enter the reset code and choose a new password.</p>
                     <div class="login-field">
                         <label class="login-label" for="reset-code">Verification Code</label>
                         <input class="login-input" id="reset-code" type="text" inputmode="numeric" maxlength="6" placeholder="Enter code" required autocomplete="one-time-code">
                     </div>
                     <div class="login-field">
                         <label class="login-label" for="reset-password">New Password</label>
-                        <input class="login-input" id="reset-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                        <div class="password-control">
+                            <input class="login-input" id="reset-password" type="password" placeholder="Enter new password" required autocomplete="new-password">
+                            <button type="button" class="password-toggle" data-action="toggle-password" data-target="reset-password" aria-label="Show password">Show</button>
+                        </div>
                     </div>
                     <div class="login-field">
                         <label class="login-label" for="reset-confirm">Confirm Password</label>
-                        <input class="login-input" id="reset-confirm" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                        <div class="password-control">
+                            <input class="login-input" id="reset-confirm" type="password" placeholder="Confirm new password" required autocomplete="new-password">
+                            <button type="button" class="password-toggle" data-action="toggle-password" data-target="reset-confirm" aria-label="Show password">Show</button>
+                        </div>
                     </div>
-                    <button type="submit" class="btn-login" id="reset-btn">Reset Password</button>
-                    <div style="margin-top:16px; text-align:center;">
-                        <button type="button" class="login-link" onclick="showLoginStep('credentials')">Back to sign in</button>
+                    <button type="submit" class="btn-login" id="reset-btn">Reset password</button>
+                    <div class="login-return">
+                        <button type="button" class="login-link" data-action="show-login" data-step="credentials">Back to sign in</button>
                     </div>
                 </form>
             </div>
 
             <div class="login-footer">Powered by <a href="https://adan.cloud" target="_blank" rel="noopener noreferrer">adan.cloud</a></div>
         </div>
-    </div>
+    </section>
 </div>
 
-<!-- ============================================================
-     Main Application
-     ============================================================ -->
-<div id="app" style="display:none;">
-    <div class="header">
+<div id="app" hidden>
+    <header class="header">
         <div class="header-brand">
-            <img src="/logo.png" alt="${project_name}" class="header-logo">
-            <span class="header-title">${project_name}</span>
-        </div>
-        <div class="nav">
-            <button class="nav-btn active" data-page="overview" onclick="showPage('overview')">Overview</button>
-            <button class="nav-btn" data-page="rules" onclick="showPage('rules')">Rules</button>
-            <button class="nav-btn" data-page="postprocessing" onclick="showPage('postprocessing')">Postprocessing</button>
-            <button class="nav-btn" data-page="exceptions" onclick="showPage('exceptions')">Exceptions</button>
-            <button class="nav-btn" data-page="alerts" onclick="showPage('alerts')">Alerts</button>
+            <span class="window-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="header-title">trailalerts</span>
+            <span class="header-separator" aria-hidden="true">/</span>
+            <span class="header-page" id="header-page-name">overview</span>
         </div>
         <div class="user-info">
             <span id="user-email" class="user-email"></span>
-            <button class="btn-header-logout" onclick="logout()">Sign Out</button>
+            <button class="btn-header-logout" data-action="logout">Sign out</button>
         </div>
-    </div>
+    </header>
 
-    <div class="container">
-        <!-- Overview Page -->
-        <div id="page-overview" class="page active">
+    <div class="app-shell">
+        <aside class="sidebar">
+            <p class="sidebar-label">Workspace</p>
+            <nav class="nav" aria-label="Dashboard">
+                <button class="nav-btn active" data-page="overview" aria-current="page">Overview</button>
+                <button class="nav-btn" data-page="rules">Rules</button>
+                <button class="nav-btn" data-page="postprocessing">Postprocessing</button>
+                <button class="nav-btn" data-page="exceptions">Exceptions</button>
+                <button class="nav-btn" data-page="alerts">Alerts</button>
+            </nav>
+        </aside>
+
+        <main class="container">
+        <section id="page-overview" class="page active" aria-labelledby="overview-heading">
+            <h2 id="overview-heading" class="sr-only">Detection overview</h2>
+            <div id="overview-notice" class="notice" hidden></div>
             <div class="stats" id="stats-cards">
-                <div class="stat-card"><div class="label">Total Alerts (24h)</div><div class="value" id="stat-total">-</div></div>
-                <div class="stat-card"><div class="label">Critical</div><div class="value" id="stat-critical" style="color:var(--critical);">-</div></div>
-                <div class="stat-card"><div class="label">High</div><div class="value" id="stat-high" style="color:var(--high);">-</div></div>
-                <div class="stat-card"><div class="label">Medium</div><div class="value" id="stat-medium" style="color:var(--medium);">-</div></div>
-                <div class="stat-card"><div class="label">Active Rules</div><div class="value" id="stat-rules">-</div></div>
+                <button type="button" class="stat-card" data-action="overview-alert-filter" data-severity="">
+                    <div class="label">Total - 24h</div>
+                    <div class="value" id="stat-total">-</div>
+                    <div class="delta-row"><span id="stat-total-delta-24">-</span><span id="stat-total-delta-week">-</span></div>
+                </button>
+                <button type="button" class="stat-card" data-action="overview-alert-filter" data-severity="critical">
+                    <div class="label">Critical</div>
+                    <div class="value severity-text-critical" id="stat-critical">-</div>
+                    <div class="delta-row"><span id="stat-critical-delta-24">-</span><span id="stat-critical-delta-week">-</span></div>
+                </button>
+                <button type="button" class="stat-card" data-action="overview-alert-filter" data-severity="high">
+                    <div class="label">High</div>
+                    <div class="value severity-text-high" id="stat-high">-</div>
+                    <div class="delta-row"><span id="stat-high-delta-24">-</span><span id="stat-high-delta-week">-</span></div>
+                </button>
+                <button type="button" class="stat-card" data-action="overview-alert-filter" data-severity="medium">
+                    <div class="label">Medium</div>
+                    <div class="value severity-text-medium" id="stat-medium">-</div>
+                    <div class="delta-row"><span id="stat-medium-delta-24">-</span><span id="stat-medium-delta-week">-</span></div>
+                </button>
             </div>
-            <div class="table-wrap">
-                <div class="table-toolbar"><strong>Top Triggered Rules (24h)</strong></div>
-                <table>
-                    <thead><tr><th>Rule</th><th>Count</th></tr></thead>
-                    <tbody id="top-rules-body"></tbody>
-                </table>
+            <div class="overview-grid">
+                <section class="trend-card" aria-labelledby="overview-trend-heading">
+                    <div class="table-toolbar trend-toolbar">
+                        <strong id="overview-trend-heading">Alerts over time</strong>
+                        <span class="trend-subtitle">Last 24 hours</span>
+                    </div>
+                    <div id="overview-trend-chart" class="trend-chart" role="img" aria-label="Alert count trend over the last 24 hours"></div>
+                </section>
+                <div class="table-wrap">
+                    <div class="table-toolbar"><strong>Top triggered rules</strong></div>
+                    <table>
+                        <thead><tr><th>Rule</th><th>Severity</th><th class="cell-numeric">Count</th></tr></thead>
+                        <tbody id="top-rules-body"></tbody>
+                    </table>
+                </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Rules Page -->
-        <div id="page-rules" class="page">
+        <section id="page-rules" class="page" aria-labelledby="rules-heading">
             <div id="rules-list-view">
+                <div class="page-heading">
+                    <div>
+                        <p class="eyebrow">Detection logic</p>
+                        <h2 id="rules-heading">Sigma rules</h2>
+                    </div>
+                </div>
                 <div class="table-wrap">
                     <div class="table-toolbar">
-                        <strong>Sigma Rules</strong>
-                        <input type="text" class="filter-input" id="rules-search" placeholder="Search rules..." oninput="debouncedRenderRules()" autocomplete="off" />
-                        <div style="flex:1;"></div>
-                        <button class="btn btn-primary btn-sm" onclick="newRule()">+ New Rule</button>
+                        <strong>Rule library</strong>
+                        <input type="text" class="filter-input" id="rules-search" placeholder="Search rules..." autocomplete="off">
+                        <div class="bulk-actions" id="rules-bulk-actions" aria-live="polite">
+                            <span class="bulk-count" id="rules-selected-count">0 selected</span>
+                            <button class="btn btn-secondary btn-sm" data-action="bulk-enable-rules" id="bulk-enable-rules-btn" disabled>Enable</button>
+                            <button class="btn btn-secondary btn-sm" data-action="bulk-disable-rules" id="bulk-disable-rules-btn" disabled>Disable</button>
+                            <button class="btn btn-danger btn-sm" data-action="bulk-delete-rules" id="bulk-delete-rules-btn" disabled>Delete</button>
+                        </div>
+                        <span class="toolbar-spacer"></span>
+                        <button class="btn btn-primary btn-sm" data-action="new-rule">New rule</button>
                     </div>
                     <table>
                         <thead><tr>
-                            <th class="sortable" data-sort="title" onclick="sortRules(this,'title')">Title</th>
-                            <th class="sortable" data-sort="level" onclick="sortRules(this,'level')">Severity</th>
-                            <th class="sortable" data-sort="status" onclick="sortRules(this,'status')">Status</th>
-                            <th class="sortable" data-sort="lastModified" onclick="sortRules(this,'lastModified')">Last Modified</th>
+                            <th class="bulk-select-cell"><input type="checkbox" class="rule-select-checkbox" id="rules-select-all" aria-label="Select all visible rules"></th>
+                            <th class="sortable" data-sort="title" data-action="sort-rules">Title</th>
+                            <th class="sortable" data-sort="level" data-action="sort-rules">Severity</th>
+                            <th class="sortable" data-sort="status" data-action="sort-rules">Status</th>
+                            <th class="sortable" data-sort="enabled" data-action="sort-rules">State</th>
+                            <th class="sortable" data-sort="lastModified" data-action="sort-rules">Last Modified</th>
                             <th>Actions</th>
                         </tr></thead>
                         <tbody id="rules-body"></tbody>
                     </table>
                 </div>
             </div>
-            <div id="rules-edit-view" style="display:none;">
-                <div class="editor-container">
+            <div id="rules-edit-view" hidden>
+                <div class="rule-editor-shell">
                     <div class="editor-header">
-                        <div style="display:flex; align-items:center; gap:1rem;">
-                            <button class="btn btn-secondary btn-sm" onclick="backToRulesList()">&larr; Back</button>
-                            <span id="editor-title" style="font-weight:600;"></span>
+                        <div class="editor-title-row">
+                            <button class="btn btn-secondary btn-sm" data-action="back-rules-list">Back</button>
+                            <div class="editor-title-stack">
+                                <span id="editor-title" class="editor-title"></span>
+                                <span id="rule-last-saved" class="editor-subtitle">Not saved yet</span>
+                            </div>
                         </div>
-                        <div style="display:flex; gap:0.5rem;">
-                            <button class="btn btn-danger btn-sm" id="delete-rule-btn" onclick="deleteCurrentRule()">Delete</button>
-                            <button class="btn btn-primary btn-sm" onclick="saveRule()">Save</button>
+                        <div class="editor-state-strip" aria-live="polite">
+                            <span id="rule-dirty-state" class="state-pill state-muted">Clean</span>
+                            <span id="rule-enabled-state" class="state-pill state-valid">Enabled</span>
+                            <span id="rule-validation-state" class="state-pill state-muted">Not validated</span>
+                            <span id="rule-test-state" class="state-pill state-muted">Not tested</span>
                         </div>
                     </div>
-                    <textarea class="yaml-editor" id="yaml-editor" spellcheck="false"></textarea>
+
+                    <div class="rule-workflow-steps" aria-label="Rule deployment workflow">
+                        <span class="workflow-step active" data-step="write">Write</span>
+                        <span class="workflow-step" data-step="validate">Validate</span>
+                        <span class="workflow-step" data-step="test">Test</span>
+                        <span class="workflow-step" data-step="save">Save</span>
+                        <span class="workflow-step" data-step="deploy">Deploy</span>
+                    </div>
+
+                    <div class="rule-editor-layout">
+                        <div class="rule-editor-main">
+                            <div class="code-editor" id="rule-code-editor">
+                                <div class="code-editor-gutter" id="yaml-line-numbers" aria-hidden="true"></div>
+                                <div class="code-editor-canvas" id="yaml-editor-canvas">
+                                    <pre class="code-editor-highlight" id="yaml-highlight" aria-hidden="true"></pre>
+                                    <textarea class="code-editor-input" id="yaml-editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Sigma YAML rule editor"></textarea>
+                                </div>
+                            </div>
+                            <div class="validation-panel" id="rule-validation-panel" aria-live="polite"></div>
+                            <details class="test-panel" open>
+                                <summary>Test event</summary>
+                                <textarea class="sample-event-editor" id="rule-test-event" spellcheck="false" aria-label="Sample CloudTrail event JSON"></textarea>
+                                <div id="rule-test-result" class="test-result"></div>
+                            </details>
+                        </div>
+                        <aside class="rule-editor-sidebar" aria-label="Rule editor details">
+                            <section class="rule-side-panel">
+                                <h3>Schema hints</h3>
+                                <div id="rule-schema-hints" class="hint-list"></div>
+                            </section>
+                            <section class="rule-side-panel">
+                                <h3>Rule metadata</h3>
+                                <dl class="metadata-list" id="rule-metadata"></dl>
+                            </section>
+                            <section class="rule-side-panel">
+                                <h3>Version history</h3>
+                                <div id="rule-version-history" class="version-history"></div>
+                            </section>
+                        </aside>
+                    </div>
+
+                    <div class="editor-sticky-actions">
+                        <div class="sticky-status" id="rule-save-status">Make a change to save and deploy.</div>
+                        <div class="editor-actions">
+                            <button class="btn btn-secondary btn-sm" data-action="validate-rule" id="validate-rule-btn">Validate</button>
+                            <button class="btn btn-secondary btn-sm" data-action="test-rule" id="test-rule-btn">Test rule</button>
+                            <button class="btn btn-secondary btn-sm" data-action="clone-current-rule" id="clone-rule-btn">Clone</button>
+                            <button class="btn btn-secondary btn-sm" data-action="toggle-current-rule-state" id="toggle-rule-state-btn">Disable</button>
+                            <button class="btn btn-danger btn-sm" id="delete-rule-btn" data-action="delete-current-rule">Delete</button>
+                            <button class="btn btn-primary btn-sm" data-action="save-rule" id="save-rule-btn" disabled>Save and deploy</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Alerts Page -->
-        <div id="page-alerts" class="page">
+        <section id="page-alerts" class="page" aria-labelledby="alerts-heading">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Investigation queue</p>
+                    <h2 id="alerts-heading">Alert history</h2>
+                </div>
+            </div>
             <div class="table-wrap">
-                <div class="table-toolbar">
-                    <strong>Alert History</strong>
-                    <input type="text" class="filter-input" id="alert-rule-filter" placeholder="Search alerts..." oninput="debouncedRenderAlerts()" autocomplete="off" />
-                    <select class="filter-select" id="alert-severity-filter" onchange="loadAlerts()">
+                <div class="table-toolbar alert-toolbar">
+                    <div class="filter-tabs" id="alert-severity-tabs" aria-label="Filter alerts by severity">
+                        <button class="filter-tab active" data-action="filter-alert-severity" data-severity="" aria-pressed="true">All <span class="filter-tab-count" data-count-for="all">-</span></button>
+                        <button class="filter-tab" data-action="filter-alert-severity" data-severity="critical" aria-pressed="false">Critical <span class="filter-tab-count" data-count-for="critical">-</span></button>
+                        <button class="filter-tab" data-action="filter-alert-severity" data-severity="high" aria-pressed="false">High <span class="filter-tab-count" data-count-for="high">-</span></button>
+                        <button class="filter-tab" data-action="filter-alert-severity" data-severity="medium" aria-pressed="false">Medium <span class="filter-tab-count" data-count-for="medium">-</span></button>
+                        <button class="filter-tab" data-action="filter-alert-severity" data-severity="low" aria-pressed="false">Low <span class="filter-tab-count" data-count-for="low">-</span></button>
+                        <button class="filter-tab" data-action="filter-alert-severity" data-severity="info" aria-pressed="false">Info <span class="filter-tab-count" data-count-for="info">-</span></button>
+                    </div>
+                    <div class="alert-toolbar-actions">
+                        <select class="filter-select" id="alert-hours-filter" aria-label="Alert time range">
+                            <option value="1">Last 1h</option>
+                            <option value="6">Last 6h</option>
+                            <option value="24" selected>Last 24h</option>
+                            <option value="72">Last 3d</option>
+                            <option value="168">Last 7d</option>
+                            <option value="720">Last 30d</option>
+                        </select>
+                        <div class="search-shell">
+                            <span class="search-kbd" aria-hidden="true">/</span>
+                            <input type="text" class="filter-input search-input" id="alert-rule-filter" placeholder="Search alerts" autocomplete="off" aria-label="Search alerts">
+                        </div>
+                    </div>
+                    <select class="filter-select" id="alert-severity-filter" hidden aria-hidden="true" tabindex="-1">
                         <option value="">All severities</option>
                         <option value="critical">Critical</option>
                         <option value="high">High</option>
@@ -207,56 +334,52 @@
                         <option value="low">Low</option>
                         <option value="info">Info</option>
                     </select>
-                    <select class="filter-select" id="alert-hours-filter" onchange="loadAlerts()">
-                        <option value="1">Last 1h</option>
-                        <option value="6">Last 6h</option>
-                        <option value="24" selected>Last 24h</option>
-                        <option value="72">Last 3d</option>
-                        <option value="168">Last 7d</option>
-                        <option value="720">Last 30d</option>
-                    </select>
-                    <button class="btn btn-secondary btn-sm" onclick="loadAlerts()">Search</button>
                 </div>
                 <div class="table-scroll">
                     <table>
                         <thead><tr>
-                            <th class="sortable" onclick="sortAlerts(this,'timestamp')">Time</th>
-                            <th class="sortable" onclick="sortAlerts(this,'sigmaRuleTitle')">Rule</th>
-                            <th class="sortable" onclick="sortAlerts(this,'severity')">Severity</th>
-                            <th class="sortable" onclick="sortAlerts(this,'eventName')">Event</th>
-                            <th class="sortable" onclick="sortAlerts(this,'actor')">Actor</th>
-                            <th class="sortable" onclick="sortAlerts(this,'sourceIp')">Source IP</th>
+                            <th class="sortable" data-sort="timestamp" data-action="sort-alerts">Time</th>
+                            <th class="sortable" data-sort="sigmaRuleTitle" data-action="sort-alerts">Rule</th>
+                            <th class="sortable" data-sort="severity" data-action="sort-alerts">Severity</th>
+                            <th class="sortable" data-sort="eventName" data-action="sort-alerts">Event</th>
+                            <th class="sortable" data-sort="actor" data-action="sort-alerts">Actor</th>
+                            <th class="sortable" data-sort="sourceIp" data-action="sort-alerts">Source IP</th>
                             <th>Actions</th>
                         </tr></thead>
                         <tbody id="alerts-body"></tbody>
                     </table>
                 </div>
-                <div id="alerts-pagination" style="padding:0.75rem 1.25rem; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--border-light);">
-                    <span id="alerts-count" style="font-size:13px; color:var(--text-muted);"></span>
-                    <button id="alerts-load-more" class="btn btn-secondary btn-sm" onclick="loadMoreAlerts()" style="display:none;">Load More Alerts</button>
+                <div id="alerts-pagination" class="pagination-row">
+                    <span id="alerts-count" class="pagination-count"></span>
+                    <button id="alerts-load-more" class="btn btn-secondary btn-sm" data-action="load-more-alerts" hidden>Load more alerts</button>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Postprocessing Page -->
-        <div id="page-postprocessing" class="page">
+        <section id="page-postprocessing" class="page" aria-labelledby="postprocessing-heading">
             <div id="pp-list-view">
-                <div class="table-wrap" style="margin-bottom:1.5rem;">
+                <div class="page-heading">
+                    <div>
+                        <p class="eyebrow">Alert enrichment</p>
+                        <h2 id="postprocessing-heading">Postprocessing</h2>
+                    </div>
+                </div>
+                <div class="table-wrap stacked-table">
                     <div class="table-toolbar">
-                        <strong>Correlation Rules</strong>
-                        <div style="flex:1;"></div>
-                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingRule('correlation')">+ New Correlation</button>
+                        <strong>Correlation rules</strong>
+                        <span class="toolbar-spacer"></span>
+                        <button class="btn btn-primary btn-sm" data-action="new-postprocessing-rule" data-type="correlation">New correlation</button>
                     </div>
                     <table>
                         <thead><tr><th>Sigma Rule</th><th>Look For</th><th>Window (min)</th><th>Severity Adj.</th><th>File</th><th>Actions</th></tr></thead>
                         <tbody id="correlation-body"></tbody>
                     </table>
                 </div>
-                <div class="table-wrap" style="margin-bottom:1.5rem;">
+                <div class="table-wrap stacked-table">
                     <div class="table-toolbar">
-                        <strong>Threshold Rules</strong>
-                        <div style="flex:1;"></div>
-                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingRule('threshold')">+ New Threshold</button>
+                        <strong>Threshold rules</strong>
+                        <span class="toolbar-spacer"></span>
+                        <button class="btn btn-primary btn-sm" data-action="new-postprocessing-rule" data-type="threshold">New threshold</button>
                     </div>
                     <table>
                         <thead><tr><th>Sigma Rule</th><th>Count</th><th>Window (min)</th><th>Severity Adj.</th><th>File</th><th>Actions</th></tr></thead>
@@ -265,9 +388,9 @@
                 </div>
                 <div class="table-wrap">
                     <div class="table-toolbar">
-                        <strong>Postprocessing Files</strong>
-                        <div style="flex:1;"></div>
-                        <button class="btn btn-primary btn-sm" onclick="newPostprocessingFile()">+ New File</button>
+                        <strong>Postprocessing files</strong>
+                        <span class="toolbar-spacer"></span>
+                        <button class="btn btn-primary btn-sm" data-action="new-postprocessing-file">New file</button>
                     </div>
                     <table>
                         <thead><tr><th>File</th><th>Rules</th><th>Last Modified</th><th>Actions</th></tr></thead>
@@ -275,31 +398,71 @@
                     </table>
                 </div>
             </div>
-            <div id="pp-edit-view" style="display:none;">
-                <div class="editor-container">
+            <div id="pp-edit-view" hidden>
+                <div class="rule-editor-shell">
                     <div class="editor-header">
-                        <div style="display:flex; align-items:center; gap:1rem;">
-                            <button class="btn btn-secondary btn-sm" onclick="backToPPList()">&larr; Back</button>
-                            <span id="pp-editor-title" style="font-weight:600;"></span>
+                        <div class="editor-title-row">
+                            <button class="btn btn-secondary btn-sm" data-action="back-pp-list">Back</button>
+                            <div class="editor-title-stack">
+                                <span id="pp-editor-title" class="editor-title"></span>
+                                <span id="pp-last-saved" class="editor-subtitle">Not saved yet</span>
+                            </div>
                         </div>
-                        <div style="display:flex; gap:0.5rem;">
-                            <button class="btn btn-danger btn-sm" id="delete-pp-btn" onclick="deleteCurrentPP()">Delete</button>
-                            <button class="btn btn-primary btn-sm" onclick="savePP()">Save</button>
+                        <div class="editor-state-strip" aria-live="polite">
+                            <span id="pp-dirty-state" class="state-pill state-muted">Clean</span>
+                            <span id="pp-validation-state" class="state-pill state-muted">Not validated</span>
                         </div>
                     </div>
-                    <textarea class="yaml-editor" id="pp-editor" spellcheck="false"></textarea>
+
+                    <div class="rule-editor-layout">
+                        <div class="rule-editor-main">
+                            <div class="code-editor" id="pp-code-editor">
+                                <div class="code-editor-gutter" id="pp-line-numbers" aria-hidden="true"></div>
+                                <div class="code-editor-canvas" id="pp-editor-canvas">
+                                    <pre class="code-editor-highlight" id="pp-highlight" aria-hidden="true"></pre>
+                                    <textarea class="code-editor-input" id="pp-editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Postprocessing JSON editor"></textarea>
+                                </div>
+                            </div>
+                            <div class="validation-panel" id="pp-validation-panel" aria-live="polite"></div>
+                        </div>
+                        <aside class="rule-editor-sidebar" aria-label="Postprocessing editor details">
+                            <section class="rule-side-panel">
+                                <h3>Schema hints</h3>
+                                <div id="pp-schema-hints" class="hint-list"></div>
+                            </section>
+                            <section class="rule-side-panel">
+                                <h3>File summary</h3>
+                                <dl class="metadata-list" id="pp-metadata"></dl>
+                            </section>
+                        </aside>
+                    </div>
+
+                    <div class="editor-sticky-actions">
+                        <div class="sticky-status" id="pp-save-status">Make a change to save.</div>
+                        <div class="editor-actions">
+                            <button class="btn btn-secondary btn-sm" data-action="validate-pp" id="validate-pp-btn">Validate</button>
+                            <button class="btn btn-danger btn-sm" id="delete-pp-btn" data-action="delete-current-pp">Delete</button>
+                            <button class="btn btn-primary btn-sm" data-action="save-pp" id="save-pp-btn" disabled>Save</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Exceptions Page -->
-        <div id="page-exceptions" class="page">
+        <section id="page-exceptions" class="page" aria-labelledby="exceptions-heading">
             <div id="exc-list-view">
+                <div class="page-heading">
+                    <div>
+                        <p class="eyebrow">Noise control</p>
+                        <h2 id="exceptions-heading">Exceptions</h2>
+                    </div>
+                </div>
                 <div class="table-wrap">
                     <div class="table-toolbar">
-                        <strong>Exception Rules</strong>
-                        <div style="flex:1;"></div>
-                        <button class="btn btn-primary btn-sm" onclick="newException()">+ Add Rule Exception</button>
+                        <strong>Exception rules</strong>
+                        <span class="toolbar-spacer"></span>
+                        <button class="btn btn-secondary btn-sm" data-action="edit-all-exceptions">Edit JSON</button>
+                        <button class="btn btn-primary btn-sm" data-action="new-exception">Add rule exception</button>
                     </div>
                     <table>
                         <thead><tr><th>Rule Title</th><th>Excluded Actors</th><th>Excluded IPs</th><th>Regex Patterns</th><th>Actions</th></tr></thead>
@@ -307,71 +470,89 @@
                     </table>
                 </div>
             </div>
-            <div id="exc-edit-view" style="display:none;">
-                <div class="editor-container">
+            <div id="exc-edit-view" hidden>
+                <div class="rule-editor-shell">
                     <div class="editor-header">
-                        <div style="display:flex; align-items:center; gap:1rem;">
-                            <button class="btn btn-secondary btn-sm" onclick="backToExcList()">&larr; Back</button>
-                            <span id="exc-editor-title" style="font-weight:600;">Exceptions (JSON)</span>
+                        <div class="editor-title-row">
+                            <button class="btn btn-secondary btn-sm" data-action="back-exc-list">Back</button>
+                            <div class="editor-title-stack">
+                                <span id="exc-editor-title" class="editor-title">Exceptions (JSON)</span>
+                                <span id="exc-last-saved" class="editor-subtitle">Not saved yet</span>
+                            </div>
                         </div>
-                        <div style="display:flex; gap:0.5rem;">
-                            <button class="btn btn-primary btn-sm" onclick="saveExceptions()">Save</button>
+                        <div class="editor-state-strip" aria-live="polite">
+                            <span id="exc-dirty-state" class="state-pill state-muted">Clean</span>
+                            <span id="exc-validation-state" class="state-pill state-muted">Not validated</span>
                         </div>
                     </div>
-                    <textarea class="yaml-editor" id="exc-editor" spellcheck="false"></textarea>
+
+                    <div class="rule-editor-layout">
+                        <div class="rule-editor-main">
+                            <div class="code-editor" id="exc-code-editor">
+                                <div class="code-editor-gutter" id="exc-line-numbers" aria-hidden="true"></div>
+                                <div class="code-editor-canvas" id="exc-editor-canvas">
+                                    <pre class="code-editor-highlight" id="exc-highlight" aria-hidden="true"></pre>
+                                    <textarea class="code-editor-input" id="exc-editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Exceptions JSON editor"></textarea>
+                                </div>
+                            </div>
+                            <div class="validation-panel" id="exc-validation-panel" aria-live="polite"></div>
+                        </div>
+                        <aside class="rule-editor-sidebar" aria-label="Exceptions editor details">
+                            <section class="rule-side-panel">
+                                <h3>Schema hints</h3>
+                                <div id="exc-schema-hints" class="hint-list"></div>
+                            </section>
+                            <section class="rule-side-panel">
+                                <h3>Exception summary</h3>
+                                <dl class="metadata-list" id="exc-metadata"></dl>
+                            </section>
+                        </aside>
+                    </div>
+                    <div class="editor-sticky-actions">
+                        <span class="editor-save-status" id="exc-save-status">Validate before saving.</span>
+                        <div class="editor-actions">
+                            <button class="btn btn-secondary btn-sm" id="validate-exceptions-btn" data-action="validate-exceptions">Validate</button>
+                            <button class="btn btn-danger btn-sm" id="delete-current-exception-btn" data-action="delete-current-exception" hidden>Delete</button>
+                            <button class="btn btn-primary btn-sm" id="save-exceptions-btn" data-action="save-exceptions">Save</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+        </section>
+        </main>
     </div>
 </div>
 
-<!-- Alert Detail Modal -->
-<div class="modal-overlay" id="alert-modal">
-    <div class="modal">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h3>Alert Detail</h3>
-            <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+<div class="modal-overlay" id="alert-modal" role="dialog" aria-modal="true" aria-labelledby="alert-modal-title">
+    <div class="modal modal-alert-detail">
+        <div class="modal-header">
+            <h3 id="alert-modal-title">Alert detail</h3>
+            <button class="btn btn-secondary btn-sm" data-action="close-modal">Close</button>
         </div>
         <div id="alert-detail-content"></div>
     </div>
 </div>
 
-<!-- Confirm / Input Dialog -->
-<div class="modal-overlay" id="dialog-modal">
-    <div class="modal" style="max-width:480px;">
+<div class="modal-overlay" id="dialog-modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <div class="modal modal-dialog">
         <h3 id="dialog-title"></h3>
-        <p id="dialog-message" style="margin-bottom:1rem; color:var(--text-body);"></p>
-        <input class="filter-input" id="dialog-input" style="width:100%; margin-bottom:1rem; display:none;" />
-        <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+        <p id="dialog-message" class="dialog-message"></p>
+        <input class="filter-input dialog-input" id="dialog-input" hidden>
+        <div class="dialog-actions">
             <button class="btn btn-secondary btn-sm" id="dialog-cancel">Cancel</button>
             <button class="btn btn-primary btn-sm" id="dialog-confirm">Confirm</button>
         </div>
     </div>
 </div>
 
-<!-- Toast Container -->
 <div class="toast-container" id="toast-container"></div>
 
-<!-- ============================================================
-     Scripts — loaded in dependency order (no build tooling needed)
-
-     CONFIG is inline because Terraform templatefile injects the
-     runtime values at deploy time. All other JS is static.
-     ============================================================ -->
-<script>
-'use strict';
-var CONFIG = {
-    apiEndpoint:      '',
-    cognitoDomain:    '${cognito_domain}',
-    cognitoClientId:  '${cognito_client_id}',
-    cognitoUserPoolId:'${cognito_user_pool_id}',
-    region:           '${aws_region}',
-};
-</script>
+<script src="/js/config.js"></script>
 <script src="/js/ui.js"></script>
 <script src="/js/auth.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/overview.js"></script>
+<script src="/js/rule_editor.js"></script>
 <script src="/js/rules.js"></script>
 <script src="/js/alerts.js"></script>
 <script src="/js/postprocessing.js"></script>

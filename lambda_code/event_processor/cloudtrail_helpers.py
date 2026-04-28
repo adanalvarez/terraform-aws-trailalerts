@@ -19,7 +19,7 @@ HTML_TEMPLATES = {
     "field": """
         <div class="detail-row">
             <div class='detail-label'>{label}</div>
-            <div class='value'>{value}</div>
+            <div class='{value_class}'>{value}</div>
         </div>
         """,
     "link_button": """
@@ -139,7 +139,7 @@ def escape_html_value(value: Any) -> str:
     return html.escape(str(value))
 
 
-def create_html_section(label: str, value: Any) -> str:
+def create_html_section(label: str, value: Any, value_class: str = "value") -> str:
     """
     Creates an HTML section with a label and value.
     
@@ -152,7 +152,12 @@ def create_html_section(label: str, value: Any) -> str:
     """
     if value is not None:
         safe_value = escape_html_value(value)
-        return HTML_TEMPLATES["field"].format(label=label, value=safe_value)
+        safe_label = escape_html_value(label)
+        return HTML_TEMPLATES["field"].format(
+            label=safe_label,
+            value=safe_value,
+            value_class=value_class,
+        )
     return ""
 
 
@@ -184,13 +189,13 @@ def format_resource_dict(resource: Dict[str, Any]) -> str:
     standard_fields = ['accountId', 'resourceOwner', 'resourceRole', 'resourceTag']
     for field in standard_fields:
         if field in resource:
-            resource_html += f"<div class='resource-detail'>{field}: {escape_html_value(resource[field])}</div>"
+            resource_html += f"<div class='resource-detail'>{escape_html_value(field)}: {escape_html_value(resource[field])}</div>"
     
     # Add any remaining fields
     skip_fields = ['ARN', 'resourceName', 'resourceType'] + standard_fields
     for key, value in resource.items():
         if key not in skip_fields:
-            resource_html += f"<div class='resource-detail'>{key}: {escape_html_value(value)}</div>"
+            resource_html += f"<div class='resource-detail'>{escape_html_value(key)}: {escape_html_value(value)}</div>"
     
     resource_html += "</div>"
     return resource_html
@@ -211,14 +216,14 @@ def extract_resource_from_parameters(event: Dict[str, Any]) -> Optional[str]:
     if isinstance(request_params, dict) and request_params:
         for field in RESOURCE_ID_FIELDS:
             if field in request_params:
-                return f"{field}: <span class='emphasis'>{escape_html_value(request_params[field])}</span>"
+                return f"{escape_html_value(field)}: <span class='emphasis'>{escape_html_value(request_params[field])}</span>"
     
     # Then check response elements
     response_elems = get_nested_value(event, ["responseElements"])
     if isinstance(response_elems, dict) and response_elems:
         for key, value in response_elems.items():
             if value and key.lower().endswith(('id', 'arn', 'name')):
-                return f"{key}: <span class='emphasis'>{escape_html_value(value)}</span>"
+                return f"{escape_html_value(key)}: <span class='emphasis'>{escape_html_value(value)}</span>"
     
     return None
 
@@ -259,43 +264,26 @@ def generate_cloudtrail_information_section(event: Dict[str, Any]) -> str:
     """
     if not validate_cloudtrail_event(event):
         logging.warning("Invalid CloudTrail event provided to generate_cloudtrail_information_section")
-        return "<div class='section'><div class='section-title'>CloudTrail Information</div><div>Invalid CloudTrail event data</div></div>"
+        return """
+        <div class='section'>
+            <div class='section-title'>CloudTrail Evidence</div>
+            <div class='notice'>Invalid CloudTrail event data</div>
+        </div>
+        """
 
     sections = []
 
-    # User identity sections
-    user_identity_fields = [
-        ("User Identity type", "userIdentity", "type"),
-        ("User Identity Principal ID", "userIdentity", "principalId"),
-        ("User Identity ARN", "userIdentity", "arn"),
-        ("User Identity account", "userIdentity", "accountId"),
-        ("User Identity accessKeyId", "userIdentity", "accessKeyId"),
-        ("User Identity userName", "userIdentity", "userName"),
-    ]
-    
-    for label, *keys in user_identity_fields:
-        value = get_nested_value(event, keys)
-        if value is not None:
-            sections.append(create_html_section(label, value))
-        else:
-            logging.debug(f"Missing CloudTrail key: {' -> '.join(keys)}")
-    
-    # Event metadata sections
-    event_fields = [
-        ("Event Time", "eventTime"),
-        ("AWS Account", "recipientAccountId"),
-        ("Region", "awsRegion"),
-        ("Event", "eventName"),
-        ("Source", "eventSource"),
-        ("Event ID", "eventID"),
-        ("Event Type", "eventType"),
-        ("API Version", "apiVersion"),
-    ]
-    
-    for label, *keys in event_fields:
-        value = get_nested_value(event, keys)
-        if value is not None:
-            sections.append(create_html_section(label, value))
+    event_id = get_nested_value(event, ["eventID"])
+    if event_id:
+        sections.append(create_html_section("Event ID", event_id, "value value-mono"))
+
+    user_arn = get_nested_value(event, ["userIdentity", "arn"])
+    if user_arn:
+        sections.append(create_html_section("User ARN", user_arn, "value value-mono"))
+
+    principal_id = get_nested_value(event, ["userIdentity", "principalId"])
+    if principal_id and principal_id != user_arn:
+        sections.append(create_html_section("Principal ID", principal_id, "value value-mono"))
     
     # Resources section
     resources = get_nested_value(event, ["resources"])
@@ -330,7 +318,7 @@ def generate_cloudtrail_information_section(event: Dict[str, Any]) -> str:
     
     if error_code or error_message:
         if error_code:
-            sections.append(create_html_section("Error Code", error_code))
+            sections.append(create_html_section("Error Code", error_code, "value value-mono"))
         if error_message:
             sections.append(create_html_section("Error Message", error_message))
 
@@ -339,14 +327,17 @@ def generate_cloudtrail_information_section(event: Dict[str, Any]) -> str:
     if cloudtrail_link:
         sections.append(
             HTML_TEMPLATES["link_button"].format(
-                url=cloudtrail_link,
+                url=html.escape(cloudtrail_link, quote=True),
                 text="View in CloudTrail Console"
             )
         )
 
+    if not sections:
+        return ""
+
     # Final assembly
     sections_html = HTML_TEMPLATES["section"].format(
-        title="CloudTrail Information",
+        title="CloudTrail Evidence",
         content="".join(sections)
     )
     return sections_html

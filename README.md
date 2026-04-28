@@ -138,6 +138,7 @@ s3://<trailalerts-rules-bucket>/
 │   ├── aws_cloudtrail_disable_logging.yml
 │   ├── aws_console_login_without_mfa.yml
 │   └── ...
+├── disabled_sigma_rules/  # Dashboard-disabled Sigma rules kept out of analyzer matching
 ├── exceptions.json        # Exception rules for filtering out benign events
 └── postprocessing_rules/  # Contains post-processing rules
     ├── correlation_iam.json  # Correlation rules focused on IAM
@@ -270,7 +271,7 @@ falsepositives:
 level: medium
 ```
 
-Rules can be uploaded directly to S3 or managed through the optional dashboard, which validates that the YAML has the required Sigma fields before saving.
+Rules can be uploaded directly to S3 or managed through the optional dashboard. The dashboard editor validates required Sigma fields inline, can test a rule against a sample CloudTrail event, and only enables save/deploy when the rule is valid. Disabled rules are moved to the `disabled_sigma_rules/` prefix instead of adding TrailAlerts-specific fields to the Sigma YAML, so the active analyzer path only reads standard Sigma documents from `sigma_rules/`.
 
 ### Correlation and Threshold Engine
 
@@ -322,10 +323,10 @@ When `enable_dashboard = true`, TrailAlerts deploys a lightweight web dashboard 
 The dashboard lets you:
 
 - **View alert history** — browse, filter and sort alerts by time, severity, rule name, or actor with paginated results when DynamoDB is enabled.
-- **Manage Sigma rules** — create, edit and delete Sigma rules directly in a YAML editor without touching S3.
-- **Manage post-processing rules** — add or modify correlation and threshold rules from the UI.
-- **Manage exceptions** — define excluded actors, IPs and regex patterns per rule.
-- **Overview** — see a 24-hour summary with total alerts, severity breakdown and top-triggered rules.
+- **Manage Sigma rules** — create, clone, validate, test, bulk enable/disable/delete, save and delete Sigma rules in a YAML editor with line numbers, inline validation, dirty-state save controls and S3-backed version history.
+- **Manage post-processing rules** — add or modify correlation and threshold rules in a JSON editor with line numbers, validation, schema hints, dirty-state save controls and safer delete/back handling.
+- **Manage exceptions** — define excluded actors, IPs and regex patterns per rule in a JSON editor with line numbers, validation, schema hints, dirty-state save controls and safer delete/back handling.
+- **Overview** — see a 24-hour summary with total alerts, severity breakdown, previous-period deltas, an alert trend and top-triggered rules.
 
 **Architecture:**
 
@@ -336,11 +337,11 @@ The dashboard lets you:
 | Frontend | S3 (static site) → CloudFront |
 | Storage | Same DynamoDB table used by the Event Processor, required for alert history and stats |
 
-The frontend is a zero-dependency vanilla JS application served via CloudFront, with the API proxied through the same distribution under `/api/*`.
+The frontend is a zero-dependency vanilla JS application served via CloudFront, with the API proxied through the same distribution under `/api/*`. The dashboard uses a same-origin API path by default, so API Gateway CORS is disabled unless you explicitly set `dashboard_api_cors_allowed_origins` for direct browser access to the API endpoint.
 
 Admin users are created from the `dashboard_admin_emails` variable and receive a temporary password by email on first deploy.
 
-Rule, post-processing and exception management works through S3. Alert history, alert detail and overview statistics require `correlation_enabled = true`, because that is what creates and wires the DynamoDB table used by both the Event Processor and dashboard API.
+Rule, post-processing and exception management works through S3. The rules bucket has versioning enabled so dashboard-managed Sigma rules can show save history and reload prior versions. Enabling or disabling a rule moves the same YAML object between `sigma_rules/` and `disabled_sigma_rules/`; disabled rules remain editable but are not loaded by the CloudTrail Analyzer. Alert history, alert detail and overview statistics require `correlation_enabled = true`, because that is what creates and wires the DynamoDB table used by both the Event Processor and dashboard API.
 
 ## Infrastructure
 
@@ -549,6 +550,7 @@ Notes:
 | <a name="input_webhook_headers"></a> [webhook\_headers](#input\_webhook\_headers) | Optional HTTP headers to include on webhook requests (e.g. Authorization tokens) | `map(string)` | `{}` | no |
 | <a name="input_enable_dashboard"></a> [enable\_dashboard](#input\_enable\_dashboard) | Whether to create the web dashboard (Cognito, API Gateway, Lambda, S3, CloudFront) | `bool` | `false` | no |
 | <a name="input_dashboard_admin_emails"></a> [dashboard\_admin\_emails](#input\_dashboard\_admin\_emails) | Email addresses created as admin users in the dashboard Cognito User Pool | `list(string)` | `[]` | no |
+| <a name="input_dashboard_api_cors_allowed_origins"></a> [dashboard\_api\_cors\_allowed\_origins](#input\_dashboard\_api\_cors\_allowed\_origins) | Optional CORS origins for direct browser access to the dashboard API. Leave empty when using the CloudFront dashboard URL | `list(string)` | `[]` | no |
 
 ## Outputs
 

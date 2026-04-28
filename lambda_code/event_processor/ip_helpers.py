@@ -1,7 +1,31 @@
 from utils import get_nested_value
+import html
 import logging
 import requests
 from typing import Dict, Any, Optional, Tuple
+from urllib.parse import quote
+
+
+def _escape_text(value: Any) -> str:
+    return html.escape(str(value if value is not None else "unknown"))
+
+
+def _detail_row(label: str, value: Any, value_class: str = "value") -> str:
+    return f"""
+        <div class="detail-row">
+            <div class="detail-label">{_escape_text(label)}</div>
+            <div class="{value_class}">{_escape_text(value)}</div>
+        </div>
+    """
+
+
+def _detail_row_html(label: str, value_html: str, value_class: str = "value") -> str:
+    return f"""
+        <div class="detail-row">
+            <div class="detail-label">{_escape_text(label)}</div>
+            <div class="{value_class}">{value_html}</div>
+        </div>
+    """
 
 def get_ip_information_section(event: Dict[str, Any], api_key: Optional[str]) -> Tuple[str, Optional[str]]:
     """
@@ -51,8 +75,10 @@ def format_ip_information(ip: str, data: Dict[str, Any]) -> str:
         sections_html = f"""
            <div class="section">
                 <div class="section-title">IP Information</div>
-                <div>IP Address: <span class="value">{ip}</span></div>
-                <div>Private IP address</div>
+                <div class="section-body">
+                    {_detail_row("IP Address", ip, "value value-mono")}
+                    <div class="notice">Private IP address</div>
+                </div>
             </div>
             """
     else:
@@ -62,8 +88,8 @@ def format_ip_information(ip: str, data: Dict[str, Any]) -> str:
             security = {}
             
         security_indicators = ", ".join(
-            [key.upper() for key, value in security.items() if value]
-        )
+            [key.replace("_", " ").title() for key, value in security.items() if value]
+        ) or "None reported"
         
         # Safely access location data
         location = data.get("location", {})
@@ -88,27 +114,39 @@ def format_ip_information(ip: str, data: Dict[str, Any]) -> str:
                 "autonomous_system_number": "unknown"
             }
             
-        maps_url = f"https://www.google.com/maps/search/{location.get('latitude', 'unknown')},{location.get('longitude', 'unknown')}"
-        virustotal_url = f"https://www.virustotal.com/gui/ip-address/{ip}"
-        greynoise_url = f"https://viz.greynoise.io/ip/{ip}"
+        latitude = str(location.get('latitude', 'unknown'))
+        longitude = str(location.get('longitude', 'unknown'))
+        encoded_ip = quote(str(ip), safe=".:")
+        encoded_coordinates = quote(f"{latitude},{longitude}", safe=",.-")
+
+        maps_url = f"https://www.google.com/maps/search/{encoded_coordinates}"
+        virustotal_url = f"https://www.virustotal.com/gui/ip-address/{encoded_ip}"
+        greynoise_url = f"https://viz.greynoise.io/ip/{encoded_ip}"
+        links_html = (
+            f"<a href='{html.escape(virustotal_url, quote=True)}' target='_blank' rel='noopener noreferrer'>VirusTotal</a> "
+            f"<a href='{html.escape(greynoise_url, quote=True)}' target='_blank' rel='noopener noreferrer'>GreyNoise</a>"
+        )
+        geolocation_html = (
+            f"<a href='{html.escape(maps_url, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+            f"<span class='value value-mono'>{_escape_text(latitude)}, {_escape_text(longitude)}</span></a>"
+        )
         
         sections_html = f"""
         <div class="section">
                 <div class="section-title">IP Information</div>
-                <div class="ip-links">
-                    <a href="{virustotal_url}" target="_blank">VirusTotal</a>
-                    <a href="{greynoise_url}" target="_blank">GreyNoise</a>
+                <div class="section-body">
+                    {_detail_row_html("Investigation Links", links_html)}
+                    {_detail_row("IP Address", data.get('ip', ip), "value value-mono")}
+                    {_detail_row("Country", location.get('country', 'unknown'))}
+                    {_detail_row("City/Region", f"{location.get('city', 'unknown')}/{location.get('region', 'unknown')}")}
+                    {_detail_row("Continent", location.get('continent', 'unknown'))}
+                    {_detail_row_html("Geolocation", geolocation_html)}
+                    {_detail_row("Time Zone", location.get('time_zone', 'unknown'), "value value-mono")}
+                    {_detail_row("European Union", 'Yes' if location.get('is_in_european_union', False) else 'No')}
+                    {_detail_row("Security Indicators", security_indicators)}
+                    {_detail_row("Network Range", network.get('network', 'unknown'), "value value-mono")}
+                    {_detail_row("Autonomous System", f"{network.get('autonomous_system_organization', 'unknown')} ({network.get('autonomous_system_number', 'unknown')})")}
                 </div>
-                <div>IP Address: <span class="value">{data.get('ip', ip)}</span></div>
-                <div>Country: <span class="value">{location.get('country', 'unknown')}</span></div>
-                <div>City/Region: <span class="value">{location.get('city', 'unknown')}/{location.get('region', 'unknown')}</span></div>
-                <div>Continent: <span class="value">{location.get('continent', 'unknown')}</span></div>
-                <div>Geolocation: <a href="{maps_url}" target="_blank"><span class="value">{location.get('latitude', 'unknown')}, {location.get('longitude', 'unknown')}</span></a></div>
-                <div>Time Zone: <span class="value">{location.get('time_zone', 'unknown')}</span></div>
-                <div>Is in European Union: <span class="value">{'Yes' if location.get('is_in_european_union', False) else 'No'}</span></div>
-                <div>Security Indicators: <span class="value">{security_indicators}</span></div>
-                <div>Network Range: <span class="value">{network.get('network', 'unknown')}</span></div>
-                <div>Autonomous System: <span class="value">{network.get('autonomous_system_organization', 'unknown')} ({network.get('autonomous_system_number', 'unknown')})</span></div>
         </div>
         """
     return sections_html

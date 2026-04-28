@@ -53,9 +53,11 @@ resource "aws_iam_role_policy" "dashboard_api_policy" {
           Effect = "Allow"
           Action = [
             "s3:GetObject",
+            "s3:GetObjectVersion",
             "s3:PutObject",
             "s3:DeleteObject",
             "s3:ListBucket",
+            "s3:ListBucketVersions",
             "s3:HeadObject"
           ]
           Resource = [
@@ -121,11 +123,15 @@ resource "aws_apigatewayv2_api" "dashboard" {
   name          = "${var.project}-dashboard-api"
   protocol_type = "HTTP"
 
-  cors_configuration {
-    allow_origins = ["*"] # Will be narrowed by CloudFront domain at frontend module via variable
-    allow_methods = ["GET", "PUT", "DELETE", "OPTIONS"]
-    allow_headers = ["Content-Type", "Authorization"]
-    max_age       = 3600
+  dynamic "cors_configuration" {
+    for_each = length(var.cors_allowed_origins) > 0 ? [1] : []
+
+    content {
+      allow_origins = var.cors_allowed_origins
+      allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+      allow_headers = ["Content-Type", "Authorization"]
+      max_age       = 3600
+    }
   }
 }
 

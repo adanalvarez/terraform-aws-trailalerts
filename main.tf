@@ -152,6 +152,7 @@ module "dashboard_api" {
   cognito_user_pool_endpoint     = module.cognito[0].user_pool_endpoint
   cognito_spa_client_id          = module.cognito[0].spa_client_id
   lambda_layer_arn               = module.lambda_layer.trailalerts_detection_layer_arn
+  cors_allowed_origins           = var.dashboard_api_cors_allowed_origins
 }
 
 module "dashboard_frontend" {

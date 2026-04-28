@@ -37,7 +37,7 @@ resource "aws_s3_object" "logo" {
   etag         = filemd5("${path.module}/../../images/TrailAlerts.png")
 }
 
-# Upload index.html with rendered config (templatefile injects runtime values)
+# Upload index.html with rendered static placeholders
 resource "aws_s3_object" "index_html" {
   bucket = aws_s3_bucket.dashboard_site.id
   key    = "index.html"
@@ -58,6 +58,25 @@ resource "aws_s3_object" "index_html" {
   }))
 }
 
+# Upload generated runtime config as a standalone script so CSP can block inline scripts
+resource "aws_s3_object" "config_js" {
+  bucket = aws_s3_bucket.dashboard_site.id
+  key    = "js/config.js"
+  content = templatefile("${path.module}/site/js/config.js.tpl", {
+    cognito_domain       = var.cognito_domain
+    cognito_client_id    = var.cognito_spa_client_id
+    cognito_user_pool_id = var.cognito_user_pool_id
+    aws_region           = data.aws_region.current.id
+  })
+  content_type = "application/javascript"
+  etag = md5(templatefile("${path.module}/site/js/config.js.tpl", {
+    cognito_domain       = var.cognito_domain
+    cognito_client_id    = var.cognito_spa_client_id
+    cognito_user_pool_id = var.cognito_user_pool_id
+    aws_region           = data.aws_region.current.id
+  }))
+}
+
 # -------------------------------------------------------
 # Static site assets (CSS, JS) — uploaded automatically
 # -------------------------------------------------------
@@ -73,10 +92,10 @@ locals {
     html = "text/html"
   }
 
-  # All files under site/ except index.html (which uses templatefile above)
+  # All files under site/ except template-rendered assets
   site_static_files = setsubtract(
     fileset("${path.module}/site", "**"),
-    ["index.html"]
+    ["index.html", "js/config.js.tpl"]
   )
 }
 
@@ -145,6 +164,8 @@ resource "aws_cloudfront_distribution" "dashboard" {
     min_ttl     = 0
     default_ttl = 0
     max_ttl     = 0
+
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security_headers.id
   }
 
   default_cache_behavior {
@@ -227,7 +248,7 @@ resource "aws_cloudfront_response_headers_policy" "security_headers" {
       override        = true
     }
     content_security_policy {
-      content_security_policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://cognito-idp.${data.aws_region.current.id}.amazonaws.com; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com;"
+      content_security_policy = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; connect-src 'self' https://cognito-idp.${data.aws_region.current.id}.amazonaws.com; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
       override                = true
     }
   }

@@ -128,3 +128,9 @@ variable "dashboard_admin_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "dashboard_api_cors_allowed_origins" {
+  description = "Optional CORS origins for direct browser access to the dashboard API. Leave empty when using the CloudFront dashboard URL."
+  type        = list(string)
+  default     = []
+}

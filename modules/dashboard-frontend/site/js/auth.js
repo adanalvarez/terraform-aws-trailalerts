@@ -11,7 +11,7 @@
  *   showLoginStep(), completeAuth(), refreshTokens(), logout(),
  *   isAuthenticated(), getUserEmail()
  *
- * Depends on: CONFIG (inline), toast() (ui.js), loadOverview() (overview.js — runtime only)
+ * Depends on: CONFIG (config.js), toast() / setHidden() (ui.js), loadOverview() (overview.js runtime only)
  */
 'use strict';
 
@@ -253,8 +253,8 @@ function completeAuth(authResult) {
     authUsername  = null;
     document.getElementById('login-password').value = '';
 
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = '';
+    setHidden('login-screen', true);
+    setHidden('app', false);
     document.getElementById('user-email').textContent = getUserEmail();
     loadOverview();
 }

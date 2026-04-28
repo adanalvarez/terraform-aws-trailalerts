@@ -1,59 +1,80 @@
 /**
- * alerts.js — Alert history with server-side time/severity filter,
- *             client-side sort and text search.
- *
- * Globals defined here:
- *   loadAlerts(), sortAlerts(), renderAlertsTable(), loadMoreAlerts(),
- *   viewAlertDetail(), closeModal()
- *
- * Depends on: api() (api.js), toast() / esc() / escAttr() / formatTime() (ui.js)
+ * alerts.js - Alert history with evidence-first table and detail view.
  */
 'use strict';
 
-var alertsNextToken  = null;
-var alertsCache      = [];
-var alertsSortField  = 'timestamp';
-var alertsSortDir    = 'desc';
-var severityOrder    = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+var alertsNextToken = null;
+var alertsCache = [];
+var alertsSortField = 'timestamp';
+var alertsSortDir = 'desc';
+var severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+var alertSeverityKeys = ['critical', 'high', 'medium', 'low', 'info'];
 
-// -------------------------------------------------------
-// Load
-// -------------------------------------------------------
+function syncAlertSeverityTabs() {
+    var current = document.getElementById('alert-severity-filter').value || '';
+    document.querySelectorAll('#alert-severity-tabs .filter-tab').forEach(function (tab) {
+        var isActive = (tab.dataset.severity || '') === current;
+        tab.classList.toggle('active', isActive);
+        tab.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function setAlertSeverityFilter(severity) {
+    document.getElementById('alert-severity-filter').value = severity || '';
+    syncAlertSeverityTabs();
+    loadAlerts();
+}
+
+function setAlertCountChip(key, value) {
+    var el = document.querySelector('[data-count-for="' + key + '"]');
+    if (el) el.textContent = value === null || value === undefined ? '-' : String(value);
+}
+
+async function updateAlertSeverityCounts(hours) {
+    alertSeverityKeys.concat(['all']).forEach(function (key) { setAlertCountChip(key, '-'); });
+    try {
+        var stats = await api('/api/alerts/stats?hours=' + encodeURIComponent(hours));
+        var bySeverity = stats.bySeverity || {};
+        setAlertCountChip('all', stats.totalAlerts || 0);
+        alertSeverityKeys.forEach(function (key) { setAlertCountChip(key, bySeverity[key] || 0); });
+    } catch (_) {
+        alertSeverityKeys.concat(['all']).forEach(function (key) { setAlertCountChip(key, '-'); });
+    }
+}
 
 async function loadAlerts(append) {
     var ruleSearch = document.getElementById('alert-rule-filter').value;
-    var severity   = document.getElementById('alert-severity-filter').value;
-    var hours      = document.getElementById('alert-hours-filter').value;
+    var severity = document.getElementById('alert-severity-filter').value;
+    var hours = document.getElementById('alert-hours-filter').value;
 
-    if (!append) { alertsNextToken = null; alertsCache = []; }
+    if (!append) {
+        alertsNextToken = null;
+        alertsCache = [];
+        syncAlertSeverityTabs();
+        updateAlertSeverityCounts(hours);
+    }
 
     var tbody = document.getElementById('alerts-body');
     if (!append) tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>';
 
     try {
-        var url = '/api/alerts?hours=' + hours + '&limit=50';
+        var url = '/api/alerts?hours=' + encodeURIComponent(hours) + '&limit=50';
         if (ruleSearch) url += '&rule=' + encodeURIComponent(ruleSearch);
         if (severity) url += '&severity=' + encodeURIComponent(severity);
         if (alertsNextToken) url += '&nextToken=' + encodeURIComponent(alertsNextToken);
 
         var data = await api(url);
-
-        alertsCache     = append ? alertsCache.concat(data.alerts) : data.alerts;
+        var loadedAlerts = data.alerts || [];
+        alertsCache = append ? alertsCache.concat(loadedAlerts) : loadedAlerts;
         alertsNextToken = data.nextToken || null;
 
-        var loadMoreBtn = document.getElementById('alerts-load-more');
-        loadMoreBtn.style.display = (alertsNextToken && data.alerts.length > 0) ? '' : 'none';
-
+        setHidden('alerts-load-more', !(alertsNextToken && loadedAlerts.length > 0));
         renderAlertsTable();
     } catch (e) {
-        if (!append) tbody.innerHTML = '<tr><td colspan="7" style="color:var(--critical);">Failed to load alerts: ' + esc(e.message) + '</td></tr>';
+        if (!append) tbody.innerHTML = emptyTableRow(7, 'Failed to load alerts', e.message);
         else toast('Failed to load more alerts: ' + e.message, 'error');
     }
 }
-
-// -------------------------------------------------------
-// Sort & Render
-// -------------------------------------------------------
 
 function sortAlerts(thEl, field) {
     if (alertsSortField === field) {
@@ -68,16 +89,18 @@ function sortAlerts(thEl, field) {
 }
 
 function renderAlertsTable() {
-    var tbody      = document.getElementById('alerts-body');
+    var tbody = document.getElementById('alerts-body');
     var ruleSearch = (document.getElementById('alert-rule-filter').value || '').toLowerCase();
 
     var filtered = alertsCache;
     if (ruleSearch) {
-        filtered = alertsCache.filter(function (a) {
-            return (a.sigmaRuleTitle || '').toLowerCase().includes(ruleSearch) ||
-                   (a.eventName || '').toLowerCase().includes(ruleSearch) ||
-                   (a.actor || '').toLowerCase().includes(ruleSearch) ||
-                   (a.sourceIp || '').toLowerCase().includes(ruleSearch);
+        filtered = alertsCache.filter(function (alert) {
+            return (alert.sigmaRuleTitle || '').toLowerCase().includes(ruleSearch) ||
+                (alert.eventName || '').toLowerCase().includes(ruleSearch) ||
+                (alert.actor || '').toLowerCase().includes(ruleSearch) ||
+                (alert.sourceIp || '').toLowerCase().includes(ruleSearch) ||
+                (alert.accountId || '').toLowerCase().includes(ruleSearch) ||
+                (alert.target || '').toLowerCase().includes(ruleSearch);
         });
     }
 
@@ -90,81 +113,118 @@ function renderAlertsTable() {
             return alertsSortDir === 'asc' ? va - vb : vb - va;
         }
         if (alertsSortField === 'severity') {
-            va = severityOrder[va] !== undefined ? severityOrder[va] : 5;
-            vb = severityOrder[vb] !== undefined ? severityOrder[vb] : 5;
+            va = severityOrder[String(va).toLowerCase()] !== undefined ? severityOrder[String(va).toLowerCase()] : 5;
+            vb = severityOrder[String(vb).toLowerCase()] !== undefined ? severityOrder[String(vb).toLowerCase()] : 5;
             return alertsSortDir === 'asc' ? va - vb : vb - va;
         }
         var cmp = String(va).localeCompare(String(vb));
         return alertsSortDir === 'asc' ? cmp : -cmp;
     });
 
-    tbody.innerHTML = '';
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No alerts found for the selected filters</td></tr>';
+        tbody.innerHTML = emptyTableRow(7, 'No alerts found', 'Try a wider time window, another severity, or a different search term.');
         document.getElementById('alerts-count').textContent = alertsCache.length > 0
-            ? '0 alerts matching search (from ' + alertsCache.length + ' loaded)'
-            : 'No alerts';
+            ? '0 alerts matching search from ' + alertsCache.length + ' loaded'
+            : 'No alerts loaded';
         return;
     }
 
-    filtered.forEach(function (a) {
-        var tr = document.createElement('tr');
-        var severityCell = '<span class="badge badge-' + (a.severity || 'info') + '">' + esc(a.severity || '?') + '</span>';
-        if (a.correlatedWith) {
-            severityCell += ' <span class="badge badge-correlated" title="Correlated with: ' + escAttr(a.correlatedWith) + '">&#x1f517;</span>';
+    tbody.innerHTML = filtered.map(function (alert) {
+        var severityCell = severityBadge(alert.severity);
+        if (alert.correlatedWith) {
+            severityCell += ' <span class="badge badge-correlated" title="Correlated with: ' + escAttr(alert.correlatedWith) + '">Correlated</span>';
         }
-        tr.innerHTML =
-            '<td class="cell-nowrap">' + esc(formatTime(a.timestamp)) + '</td>' +
-            '<td class="cell-truncate" title="' + escAttr(a.sigmaRuleTitle || '') + '">' + esc(a.sigmaRuleTitle || '') + '</td>' +
+        return '<tr>' +
+            '<td class="cell-nowrap"><div class="mono">' + esc(formatTime(alert.timestamp)) + '</div></td>' +
+            '<td class="alert-row-title" title="' + escAttr(alert.sigmaRuleTitle || '') + '"><div class="cell-primary">' + esc(alert.sigmaRuleTitle || 'Unknown rule') + '</div><div class="cell-secondary mono">' + esc(alert.sigmaRuleId || '') + '</div></td>' +
             '<td class="cell-nowrap">' + severityCell + '</td>' +
-            '<td class="cell-truncate" title="' + escAttr(a.eventName || '') + '">' + esc(a.eventName || '') + '</td>' +
-            '<td class="cell-truncate" title="' + escAttr(a.actor || '') + '">' + esc(a.actor || '') + '</td>' +
-            '<td class="cell-truncate" title="' + escAttr(a.sourceIp || '') + '">' + esc(a.sourceIp || '') + '</td>' +
-            '<td class="cell-nowrap"><button class="btn btn-secondary btn-sm" onclick="viewAlertDetail(\'' + escAttr(a.pk) + '\',\'' + escAttr(a.sk) + '\')">Detail</button></td>';
-        tbody.appendChild(tr);
-    });
+            '<td title="' + escAttr(alert.eventName || '') + '"><div class="cell-primary">' + esc(alert.eventName || '') + '</div><div class="cell-secondary">' + esc(alert.sourceType || alert.eventType || '') + '</div></td>' +
+            '<td title="' + escAttr(alert.actor || '') + '"><div class="mono">' + esc(alert.actor || '') + '</div></td>' +
+            '<td title="' + escAttr(alert.sourceIp || '') + '"><div class="mono">' + esc(alert.sourceIp || '') + '</div><div class="cell-secondary mono">' + esc(alert.accountId || '') + '</div></td>' +
+            '<td class="cell-nowrap"><button class="btn btn-secondary btn-sm" data-action="view-alert" data-pk="' + escAttr(alert.pk) + '" data-sk="' + escAttr(alert.sk) + '">Detail</button></td>' +
+            '</tr>';
+    }).join('');
 
     var countEl = document.getElementById('alerts-count');
     countEl.textContent = filtered.length + ' alert' + (filtered.length !== 1 ? 's' : '') +
-        (filtered.length < alertsCache.length ? ' (filtered from ' + alertsCache.length + ')' : '');
+        (filtered.length < alertsCache.length ? ' filtered from ' + alertsCache.length : ' loaded');
 }
 
 function loadMoreAlerts() {
     loadAlerts(true);
 }
 
-// -------------------------------------------------------
-// Alert Detail Modal
-// -------------------------------------------------------
+function valueOrDash(value) {
+    if (value === null || value === undefined || value === '') return '-';
+    return value;
+}
+
+function evidenceRow(label, value, mono) {
+    var classes = mono ? 'evidence-value mono' : 'evidence-value';
+    return '<div class="evidence-row"><div class="evidence-label">' + esc(label) + '</div><div class="' + classes + '">' + esc(valueOrDash(value)) + '</div></div>';
+}
+
+function evidenceSection(title, rows) {
+    return '<section class="evidence-card"><h4>' + esc(title) + '</h4><div class="evidence-list">' + rows.join('') + '</div></section>';
+}
+
+function parseRawEvent(rawEvent) {
+    if (!rawEvent) return '';
+    try {
+        return JSON.stringify(JSON.parse(rawEvent), null, 2);
+    } catch (_) {
+        return String(rawEvent);
+    }
+}
 
 async function viewAlertDetail(pk, sk) {
-    var modal   = document.getElementById('alert-modal');
+    var modal = document.getElementById('alert-modal');
     var content = document.getElementById('alert-detail-content');
     content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
     modal.classList.add('active');
 
     try {
         var data = await api('/api/alerts/detail?pk=' + encodeURIComponent(pk) + '&sk=' + encodeURIComponent(sk));
-        var a = data.alert;
-        var rawEvent = '';
-        try { rawEvent = JSON.stringify(JSON.parse(a.rawEvent || '{}'), null, 2); } catch (_) { rawEvent = a.rawEvent || ''; }
+        var alert = data.alert || {};
+        var rawEvent = parseRawEvent(alert.rawEvent);
+        var correlated = alert.correlatedWith ? '<span class="badge badge-correlated">Correlated</span>' : '';
+        var badging = '<div class="badge-group">' + severityBadge(alert.severity) + correlated + '</div>';
+
+        var contextRows = [
+            evidenceRow('Time', alert.timestamp, true),
+            evidenceRow('Event', alert.eventName, false),
+            evidenceRow('Source type', alert.sourceType, false),
+            evidenceRow('Event type', alert.eventType, false),
+        ];
+        var actorRows = [
+            evidenceRow('Actor', alert.actor, true),
+            evidenceRow('Source IP', alert.sourceIp, true),
+            evidenceRow('User agent', alert.userAgent, true),
+        ];
+        var awsRows = [
+            evidenceRow('Account', alert.accountId, true),
+            evidenceRow('Region', alert.awsRegion || alert.region, true),
+            evidenceRow('Target', alert.target, true),
+            evidenceRow('Rule ID', alert.sigmaRuleId, true),
+        ];
+        var relationshipRows = [
+            evidenceRow('Correlated with', alert.correlatedWith, false),
+            evidenceRow('Dashboard key', alert.sk, true),
+        ];
 
         content.innerHTML =
-            '<div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:1rem;">' +
-            '<div><strong>Rule:</strong> ' + esc(a.sigmaRuleTitle || '') + '</div>' +
-            '<div><strong>Severity:</strong> <span class="badge badge-' + (a.severity || 'info') + '">' + esc(a.severity || '') + '</span></div>' +
-            '<div><strong>Event:</strong> ' + esc(a.eventName || '') + '</div>' +
-            '<div><strong>Time:</strong> ' + esc(a.timestamp || '') + '</div>' +
-            '<div><strong>Actor:</strong> ' + esc(a.actor || '') + '</div>' +
-            '<div><strong>Source IP:</strong> ' + esc(a.sourceIp || '') + '</div>' +
-            '<div><strong>Account:</strong> ' + esc(a.accountId || '') + '</div>' +
-            '<div><strong>User Agent:</strong> ' + esc(a.userAgent || '') + '</div>' +
+            '<div class="alert-detail-hero">' +
+            '<div><div class="alert-detail-title">' + esc(alert.sigmaRuleTitle || 'Unknown rule') + '</div>' +
+            '<div class="alert-detail-subtitle">CloudTrail event evidence for this detection.</div></div>' + badging + '</div>' +
+            '<div class="evidence-grid">' +
+            evidenceSection('Event evidence', contextRows) +
+            evidenceSection('Actor and source', actorRows) +
+            evidenceSection('AWS context', awsRows) +
+            evidenceSection('Relationship', relationshipRows) +
             '</div>' +
-            (a.correlatedWith ? '<div style="background:var(--bg-secondary); border-left:3px solid var(--warning); padding:0.5rem 0.75rem; margin-bottom:1rem; border-radius:4px;"><strong>Correlated with:</strong> ' + esc(a.correlatedWith) + ' &mdash; severity was escalated because related activity was identified.</div>' : '') +
-            '<h4 style="margin-bottom:0.5rem;">Raw CloudTrail Event</h4>' +
-            '<pre>' + esc(rawEvent) + '</pre>';
+            '<details class="raw-details"><summary>Raw CloudTrail event</summary><pre>' + esc(rawEvent || 'No raw event stored for this alert.') + '</pre></details>';
     } catch (e) {
-        content.innerHTML = '<p style="color:var(--critical);">Failed to load detail: ' + esc(e.message) + '</p>';
+        content.innerHTML = '<div class="notice">Failed to load alert detail: ' + esc(e.message) + '</div>';
     }
 }
 
@@ -172,12 +232,12 @@ function closeModal() {
     document.getElementById('alert-modal').classList.remove('active');
 }
 
-// Close modal on overlay click or Escape key
-document.getElementById('alert-modal').addEventListener('click', function (e) {
-    if (e.target === this) closeModal();
+document.getElementById('alert-modal').addEventListener('click', function (event) {
+    if (event.target === this) closeModal();
 });
-document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && document.getElementById('alert-modal').classList.contains('active')) {
+
+document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && document.getElementById('alert-modal').classList.contains('active')) {
         closeModal();
     }
 });
