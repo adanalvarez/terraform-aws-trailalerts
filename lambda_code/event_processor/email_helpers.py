@@ -3,7 +3,10 @@ from botocore.exceptions import ClientError
 import html
 import logging
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
+
+KNOWN_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 
 
 def _escape_text(value: Any) -> str:
@@ -31,7 +34,72 @@ def _render_detail_row_html(label: str, value_html: str, value_class: str = "val
     """
 
 
-def generate_email_html(style: str, sections: List[str]) -> str:
+def _normalize_severity(value: Any) -> str:
+    severity = str(value or "unknown").strip().lower()
+    return severity if severity in KNOWN_SEVERITIES else "unknown"
+
+
+def _display_severity(value: Any) -> str:
+    return _normalize_severity(value).title()
+
+
+def _build_alert_subject(rule: Dict[str, Any],
+                         correlated_events: Optional[List[Dict[str, Any]]] = None,
+                         threshold_info: Optional[Dict[str, Any]] = None) -> str:
+    rule_title = str(rule.get("title", "Unknown Rule"))
+    severity = _display_severity(rule.get("level", "unknown"))
+    subject_parts = ["TrailAlerts", severity, rule_title]
+    if correlated_events:
+        subject_parts.append("correlated activity")
+    if threshold_info:
+        subject_parts.append("threshold activity")
+    return " - ".join(subject_parts)
+
+
+def _generate_plain_text_alert(event: Dict[str, Any],
+                               rule: Dict[str, Any],
+                               correlated_events: Optional[List[Dict[str, Any]]] = None,
+                               threshold_info: Optional[Dict[str, Any]] = None) -> str:
+    lines = [
+        "TrailAlerts alert",
+        f"Rule: {rule.get('title', 'Unknown Rule')}",
+        f"Severity: {_display_severity(rule.get('level', 'unknown'))}",
+        f"Event: {event.get('eventName', 'N/A')}",
+        f"Event Source: {event.get('eventSource', 'N/A')}",
+        f"Time: {event.get('eventTime', 'N/A')}",
+        f"Actor: {event.get('actor') or event.get('userIdentity', {}).get('arn', 'N/A')}",
+        f"Source IP: {event.get('sourceIPAddress', 'N/A')}",
+        f"Region: {event.get('awsRegion', 'N/A')}",
+        f"Account ID: {event.get('recipientAccountId', event.get('userIdentity', {}).get('accountId', 'N/A'))}",
+    ]
+
+    if correlated_events:
+        lines.append("")
+        lines.append("Correlated activity was identified in the same investigation window.")
+        for correlated_event in correlated_events:
+            lines.extend([
+                f"Related Rule: {correlated_event.get('sigmaRuleTitle', 'N/A')}",
+                f"Time: {correlated_event.get('timestamp', 'N/A')}",
+                f"Actor: {correlated_event.get('actor', 'N/A')}",
+                f"Target: {correlated_event.get('target', 'N/A')}",
+            ])
+
+    if threshold_info:
+        event_count = threshold_info.get('eventCount', threshold_info.get('event_count', 0))
+        threshold_count = threshold_info.get('thresholdCount', threshold_info.get('threshold_count', 0))
+        window_minutes = threshold_info.get('windowMinutes', threshold_info.get('window_minutes', 0))
+        lines.extend([
+            "",
+            "Activity met the configured alert threshold.",
+            f"Event Count: {event_count}",
+            f"Threshold: {threshold_count}",
+            f"Time Window: {window_minutes} minutes",
+        ])
+
+    return "\n".join(str(line) for line in lines)
+
+
+def generate_email_html(style: str, sections: List[str], alert_title: str = "Security event summary") -> str:
     """
     Generates an HTML email template with CloudTrail information, IP information, and CloudTrail information.
     
@@ -43,9 +111,9 @@ def generate_email_html(style: str, sections: List[str]) -> str:
         str: Complete HTML email template
     """
     try:
-        # Filter out None or empty sections and join them
         valid_sections = [section for section in sections if section and section.strip()]
         combined_sections = "".join(valid_sections)
+        safe_alert_title = _escape_text(alert_title or "Security event summary")
 
         html_template = f"""
             <!DOCTYPE html>
@@ -53,25 +121,25 @@ def generate_email_html(style: str, sections: List[str]) -> str:
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>TrailAlerts CloudTrail Alert</title>
+                <title>{safe_alert_title} - TrailAlerts Alert</title>
                 {style}
             </head>
             <body>
                 <div class="email-shell">
                     <div class="container">
                         <div class="header">
-                            <div class="header-kicker">TrailAlerts</div>
-                            <div class="header-title">CloudTrail Alert</div>
+                            <div class="header-kicker">trailalerts &middot; alert</div>
+                            <div class="header-title">{safe_alert_title}</div>
                         </div>
                         <div class="intro">
                             <div class="intro-title">Security event summary</div>
                             <div class="intro-text">
-                                A detection in your AWS environment matched one of your monitoring rules. Review the details below and validate the related CloudTrail activity.
+                                A detection in your AWS environment matched one of your monitoring rules. Review the summary, evidence, and CloudTrail context below.
                             </div>
                         </div>
                         {combined_sections}
                         <div class="footer">
-                            TrailAlerts notification • Review the dashboard for full event history, filtering, and investigation context.
+                            TrailAlerts notification. Review the dashboard for full event history, filtering, and investigation context.
                         </div>
                     </div>
                 </div>
@@ -86,7 +154,7 @@ def generate_email_html(style: str, sections: List[str]) -> str:
             <!DOCTYPE html>
             <html>
             <body>
-                <h1>CloudTrail Alert</h1>
+                <h1>{_escape_text(alert_title or 'TrailAlerts Alert')}</h1>
                 <p>Error generating formatted email. Please check the logs.</p>
                 <pre>{str(e)}</pre>
             </body>
@@ -112,17 +180,17 @@ def generate_correlation_section(correlated_events: List[Dict[str, Any]]) -> str
         event_html = f"""
             <div class="correlated-event">
                 {_render_detail_row("Rule", event.get("sigmaRuleTitle", "N/A"))}
-                {_render_detail_row("Time", event.get("timestamp", "N/A"))}
-                {_render_detail_row("Actor", event.get("actor", "N/A"))}
-                {_render_detail_row("Target", event.get("target", "N/A"))}
+                {_render_detail_row("Time", event.get("timestamp", "N/A"), "value value-mono")}
+                {_render_detail_row("Actor", event.get("actor", "N/A"), "value value-mono")}
+                {_render_detail_row("Target", event.get("target", "N/A"), "value value-mono")}
             </div>
         """
         events_html.append(event_html)
 
     return f"""
         <div class="section">
-            <div class="section-title">Correlated Events</div>
-            <div class="correlation-warning">Escalated because related activity was identified in the same investigation window.</div>
+            <div class="section-title">Correlated Activity</div>
+            <div class="correlation-warning">Related activity was identified in the same investigation window.</div>
             {"".join(events_html)}
         </div>
     """
@@ -151,13 +219,13 @@ def generate_threshold_section(threshold_info: Dict[str, Any]) -> str:
     # Generate the threshold section
     return f"""
         <div class="section">
-            <div class="section-title">Threshold Exceeded</div>
-            <div class="threshold-warning">Escalated because this activity exceeded the configured alert threshold.</div>
+            <div class="section-title">Threshold Activity</div>
+            <div class="threshold-warning">Activity met the configured alert threshold.</div>
             <div class="threshold-details">
                 {_render_detail_row("Rule", rule_title)}
-                {_render_detail_row("Actor", actor)}
-                {_render_detail_row("Event Count", event_count)}
-                {_render_detail_row("Threshold", threshold_count)}
+                {_render_detail_row("Actor", actor, "value value-mono")}
+                {_render_detail_row("Event Count", event_count, "value value-strong")}
+                {_render_detail_row("Threshold", threshold_count, "value value-strong")}
                 {_render_detail_row("Time Window", f"{window_minutes} minutes")}
             </div>
         </div>
@@ -180,16 +248,16 @@ def generate_sigma_rule_section(rule: Dict[str, Any]) -> str:
     sections = []
 
     if rule.get("title"):
-        sections.append(_render_detail_row("Rule", rule["title"]))
+        sections.append(_render_detail_row("Rule", rule["title"], "value value-strong"))
     if rule.get("level"):
-        severity_level = str(rule["level"]).lower()
+        severity_level = _normalize_severity(rule.get("level"))
         severity_badge = (
-            f"<span class='badge severity-{severity_level}'>"
-            f"{_escape_text(str(rule['level']).upper())}</span>"
+            f"<span class='severity-pill severity-{severity_level}'>"
+            f"{_escape_text(_display_severity(rule.get('level')))}</span>"
         )
         sections.append(_render_detail_row_html("Severity", severity_badge))
     if rule.get("id"):
-        sections.append(_render_detail_row("Rule ID", rule["id"]))
+        sections.append(_render_detail_row("Rule ID", rule["id"], "value value-mono"))
     if rule.get("description"):
         sections.append(_render_detail_row("Description", rule["description"]))
     if rule.get("author"):
@@ -241,17 +309,8 @@ def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str,
         bool: True when SES accepted the email request, False otherwise
     """
     ses_client = boto3.client("ses")
-    rule_title = rule.get("title", "Unknown Rule")
-    severity = rule.get("level", "unknown").upper()
-    
-    # Add severity indicator to subject with TRAILALERTS prefix
-    subject = f"[TRAILALERTS][{severity}] {rule_title}"
-    
-    # Add correlation or threshold indicator to subject
-    if correlated_events:
-        subject = f"[CORRELATED] {subject}"
-    if threshold_info:
-        subject = f"[THRESHOLD EXCEEDED] {subject}"
+    subject = _build_alert_subject(rule, correlated_events, threshold_info)
+    text_content = _generate_plain_text_alert(event, rule, correlated_events, threshold_info)
 
     try:
         response = ses_client.send_email(
@@ -259,7 +318,10 @@ def ses_send_email(html_content: str, event: Dict[str, Any], source_email: str,
             Destination={"ToAddresses": [destination_email]},
             Message={
                 "Subject": {"Data": subject},
-                "Body": {"Html": {"Data": html_content}},
+                "Body": {
+                    "Html": {"Data": html_content},
+                    "Text": {"Data": text_content},
+                },
             },
         )
         logging.info(f"Email sent: {response['MessageId']}")
@@ -288,12 +350,12 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
     sns_client = boto3.client("sns")
     
     # Get severity from rule metadata
-    severity = "UNKNOWN"
+    severity = "Unknown"
     if rule_metadata and "level" in rule_metadata:
-        severity = rule_metadata["level"].upper()
+        severity = _display_severity(rule_metadata["level"])
     
-    # Basic event information with severity
-    message = f'SEVERITY: {severity}\n'
+    message = f'TrailAlerts alert\n'
+    message += f'Severity: {severity}\n'
     message += f'Event: {records.get("eventName", "N/A")}\n'
     message += f'Event Source: {records.get("eventSource", "N/A")}\n'
     message += f'Principal ID: {records.get("userIdentity", {}).get("principalId", "N/A")}\n'
@@ -304,8 +366,8 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
 
     # Add correlation information if available
     if correlated_events:
-        message += "\nCORRELATED EVENTS:\n"
-        message += "⚠️ This alert was escalated due to correlation with previous events\n\n"
+        message += "\nCorrelated activity:\n"
+        message += "Related activity was identified in the same investigation window.\n\n"
         for event in correlated_events:
             message += f'Related Rule: {event.get("sigmaRuleTitle", "N/A")}\n'
             message += f'Time: {event.get("timestamp", "N/A")}\n'
@@ -315,8 +377,8 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
     
     # Add threshold information if available
     if threshold_info:
-        message += "\nTHRESHOLD EXCEEDED:\n"
-        message += "⚠️ This alert was escalated due to multiple occurrences of the same event\n\n"
+        message += "\nThreshold activity:\n"
+        message += "Activity met the configured alert threshold.\n\n"
         event_count = threshold_info.get('eventCount', threshold_info.get('event_count', 0))
         threshold_count = threshold_info.get('thresholdCount', threshold_info.get('threshold_count', 0))
         window_minutes = threshold_info.get('windowMinutes', threshold_info.get('window_minutes', 0))
@@ -330,11 +392,8 @@ def sns_send_email(sns_topic: str, records: Dict[str, Any],
         message += f'Time Window: {window_minutes} minutes\n'
         message += '-' * 40 + '\n'
 
-    subject = f"[AWS CloudTrail Alert][{severity}] {records.get('eventName', 'N/A')}"
-    if correlated_events:
-        subject = f"[CORRELATED] {subject}"
-    if threshold_info:
-        subject = f"[THRESHOLD EXCEEDED] {subject}"
+    subject_rule = rule_metadata or {"title": records.get('eventName', 'N/A'), "level": severity}
+    subject = _build_alert_subject(subject_rule, correlated_events, threshold_info)
 
     try:
         response = sns_client.publish(

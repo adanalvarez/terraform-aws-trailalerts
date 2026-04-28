@@ -3,6 +3,7 @@
  *
  * Globals defined here:
  *   toast(), showDialog(), esc(), escAttr(), formatTime(),
+ *   setHidden(), severityBadge(), statusBadge(), emptyTableRow(),
  *   debouncedRenderRules(), debouncedRenderAlerts()
  */
 'use strict';
@@ -57,11 +58,11 @@ function showDialog(title, message, opts) {
         confirmBtn.className = opts.danger ? 'btn btn-danger btn-sm' : 'btn btn-primary btn-sm';
 
         if (opts.input) {
-            inputEl.style.display = '';
+            inputEl.hidden = false;
             inputEl.value = opts.defaultValue || '';
             inputEl.placeholder = opts.placeholder || '';
         } else {
-            inputEl.style.display = 'none';
+            inputEl.hidden = true;
         }
 
         overlay.classList.add('active');
@@ -92,17 +93,20 @@ function esc(str) {
 }
 
 /**
- * Escape a value for safe use inside onclick="fn('VALUE')" attributes.
- * Order matters: backslash first (JS context), then single-quote, then HTML entities.
+ * Escape a value for safe use inside HTML attributes.
  */
 function escAttr(str) {
     return String(str || '')
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+}
+
+function setHidden(target, hidden) {
+    var el = typeof target === 'string' ? document.getElementById(target) : target;
+    if (el) el.hidden = !!hidden;
 }
 
 // -------------------------------------------------------
@@ -117,6 +121,34 @@ function formatTime(ts) {
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
                d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
     } catch (_) { return ts; }
+}
+
+function normalizeSeverity(severity) {
+    var value = String(severity || 'info').trim().toLowerCase();
+    if (['critical', 'high', 'medium', 'low', 'info'].indexOf(value) === -1) return 'info';
+    return value;
+}
+
+function labelCase(value) {
+    value = String(value || '');
+    if (!value) return '';
+    return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function severityBadge(severity) {
+    var normalized = normalizeSeverity(severity);
+    return '<span class="badge badge-' + normalized + '">' + esc(labelCase(normalized)) + '</span>';
+}
+
+function statusBadge(status) {
+    var normalized = String(status || 'unknown').trim().toLowerCase();
+    var badgeClass = normalized === 'active' || normalized === 'enabled' ? 'badge-success' : 'badge-muted';
+    return '<span class="badge ' + badgeClass + '">' + esc(labelCase(normalized)) + '</span>';
+}
+
+function emptyTableRow(colspan, title, copy) {
+    var detail = copy ? '<div class="empty-copy">' + esc(copy) + '</div>' : '';
+    return '<tr><td colspan="' + colspan + '" class="empty-row"><div class="empty-title">' + esc(title) + '</div>' + detail + '</td></tr>';
 }
 
 // -------------------------------------------------------

@@ -536,12 +536,17 @@ def send_notifications(matched_event: Dict[str, Any], rule_metadata: Dict[str, A
                 # Continue without IP info if there's an error
 
         logger.info("Generating HTML email")
-        email_html = generate_email_html(generate_style(), sections)
+        alert_title = (
+            rule_metadata.get("title")
+            or matched_event.get("eventName")
+            or "Security event summary"
+        )
+        email_html = generate_email_html(generate_style(), sections, alert_title)
 
         if ses_send_email(
-            email_html, 
-            matched_event, 
-            config["source_email"], 
+            email_html,
+            matched_event,
+            config["source_email"],
             config["destination_email"],
             rule_metadata,
             correlated_events,

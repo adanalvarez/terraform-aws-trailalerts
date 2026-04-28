@@ -3,7 +3,7 @@
  *
  * Globals defined here: api()
  *
- * Depends on: CONFIG (inline), accessToken (auth.js), refreshTokens() (auth.js), toast() (ui.js)
+ * Depends on: CONFIG (config.js), accessToken (auth.js), refreshTokens() (auth.js), toast() (ui.js)
  */
 'use strict';
 
@@ -42,7 +42,11 @@ async function api(path, options) {
         }
     }
 
-    var data = await resp.json();
+    var text = await resp.text();
+    var data = {};
+    if (text) {
+        try { data = JSON.parse(text); } catch (_) { data = { error: text }; }
+    }
     if (!resp.ok) throw new Error(data.error || 'API error');
     return data;
 }

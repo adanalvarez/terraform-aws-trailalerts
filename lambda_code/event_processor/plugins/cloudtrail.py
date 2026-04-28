@@ -92,12 +92,15 @@ class CloudTrailPlugin(EventSourcePlugin):
             str: HTML section for the event
         """
         # Extract and escape event details
-        event_type = html.escape(str(event.get('eventType', 'unknown')))
         actor = html.escape(str(self.extract_actor(event)))
         source_ip = html.escape(str(event.get('sourceIPAddress', 'unknown')))
         timestamp = html.escape(str(event.get('eventTime', 'unknown')))
         region = html.escape(str(event.get('awsRegion', 'unknown')))
-        account_id = html.escape(str(event.get('recipientAccountId', 'unknown')))
+        account_id = html.escape(str(
+            event.get('recipientAccountId')
+            or event.get('userIdentity', {}).get('accountId')
+            or 'unknown'
+        ))
         event_name = html.escape(str(event.get('eventName', 'unknown')))
         event_source = html.escape(str(event.get('eventSource', 'unknown')))
         
@@ -108,35 +111,31 @@ class CloudTrailPlugin(EventSourcePlugin):
             <div class='section-body'>
                 <div class='detail-row'>
                     <div class='detail-label'>Time</div>
-                    <div class='value'>{timestamp}</div>
+                    <div class='value value-mono'>{timestamp}</div>
                 </div>
                 <div class='detail-row'>
                     <div class='detail-label'>Event</div>
-                    <div class='value'>{event_name}</div>
+                    <div class='value value-strong'>{event_name}</div>
                 </div>
                 <div class='detail-row'>
                     <div class='detail-label'>Event Source</div>
-                    <div class='value'>{event_source}</div>
+                    <div class='value value-mono'>{event_source}</div>
                 </div>
                 <div class='detail-row'>
                     <div class='detail-label'>Actor</div>
-                    <div class='value'>{actor}</div>
+                    <div class='value value-mono'>{actor}</div>
                 </div>
                 <div class='detail-row'>
                     <div class='detail-label'>Source IP</div>
-                    <div class='value'>{source_ip}</div>
+                    <div class='value value-mono'>{source_ip}</div>
                 </div>
                 <div class='detail-row'>
                     <div class='detail-label'>Region</div>
-                    <div class='value'>{region}</div>
+                    <div class='value value-mono'>{region}</div>
                 </div>
                 <div class='detail-row'>
                     <div class='detail-label'>Account ID</div>
-                    <div class='value'>{account_id}</div>
-                </div>
-                <div class='detail-row'>
-                    <div class='detail-label'>Event Type</div>
-                    <div class='value'>{event_type}</div>
+                    <div class='value value-mono'>{account_id}</div>
                 </div>
             </div>
         </div>
