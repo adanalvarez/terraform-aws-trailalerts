@@ -57,9 +57,9 @@ variable "guardduty_findings_filter_suffix" {
 }
 
 variable "guardduty_min_severity" {
-  description = "Minimum numeric GuardDuty severity to ingest. Use 0 to ingest all findings, 4 for medium and higher, or 7 for high findings only."
+  description = "Minimum numeric GuardDuty severity to ingest. Defaults to 4 (medium and higher). Set 0 to ingest all findings, or 7 for high findings only."
   type        = number
-  default     = 0
+  default     = 4
 
   validation {
     condition     = var.guardduty_min_severity >= 0 && var.guardduty_min_severity <= 10

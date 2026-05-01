@@ -2,7 +2,7 @@ data "archive_file" "trailalerts_guardduty_ingester_zip" {
   type        = "zip"
   source_dir  = "${local.rel_path_root}/lambda_code/guardduty_ingester"
   output_path = "${local.rel_path_root}/build/TrailAlertsGuardDutyIngester.zip"
-  excludes    = ["__pycache__", "tests"]
+  excludes    = ["__pycache__", ".pytest_cache", "tests"]
 }
 
 resource "aws_iam_role" "trailalerts_guardduty_ingester_role" {
@@ -88,8 +88,6 @@ resource "aws_lambda_function" "trailalerts_guardduty_ingester" {
 }
 
 resource "aws_lambda_permission" "allow_guardduty_findings_s3" {
-  count = var.guardduty_manage_bucket_notification ? 1 : 0
-
   statement_id  = "AllowExecutionFromGuardDutyFindingsBucket"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.trailalerts_guardduty_ingester.function_name
