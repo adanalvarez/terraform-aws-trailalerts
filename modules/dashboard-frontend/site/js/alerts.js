@@ -45,6 +45,7 @@ async function updateAlertSeverityCounts(hours) {
 async function loadAlerts(append) {
     var ruleSearch = document.getElementById('alert-rule-filter').value;
     var severity = document.getElementById('alert-severity-filter').value;
+    var source = document.getElementById('alert-source-filter').value;
     var hours = document.getElementById('alert-hours-filter').value;
 
     if (!append) {
@@ -61,6 +62,7 @@ async function loadAlerts(append) {
         var url = '/api/alerts?hours=' + encodeURIComponent(hours) + '&limit=50';
         if (ruleSearch) url += '&rule=' + encodeURIComponent(ruleSearch);
         if (severity) url += '&severity=' + encodeURIComponent(severity);
+        if (source) url += '&source=' + encodeURIComponent(source);
         if (alertsNextToken) url += '&nextToken=' + encodeURIComponent(alertsNextToken);
 
         var data = await api(url);
@@ -99,6 +101,7 @@ function renderAlertsTable() {
                 (alert.eventName || '').toLowerCase().includes(ruleSearch) ||
                 (alert.actor || '').toLowerCase().includes(ruleSearch) ||
                 (alert.sourceIp || '').toLowerCase().includes(ruleSearch) ||
+                (alert.sourceType || '').toLowerCase().includes(ruleSearch) ||
                 (alert.accountId || '').toLowerCase().includes(ruleSearch) ||
                 (alert.target || '').toLowerCase().includes(ruleSearch);
         });
@@ -138,7 +141,7 @@ function renderAlertsTable() {
             '<td class="cell-nowrap"><div class="mono">' + esc(formatTime(alert.timestamp)) + '</div></td>' +
             '<td class="alert-row-title" title="' + escAttr(alert.sigmaRuleTitle || '') + '"><div class="cell-primary">' + esc(alert.sigmaRuleTitle || 'Unknown rule') + '</div><div class="cell-secondary mono">' + esc(alert.sigmaRuleId || '') + '</div></td>' +
             '<td class="cell-nowrap">' + severityCell + '</td>' +
-            '<td title="' + escAttr(alert.eventName || '') + '"><div class="cell-primary">' + esc(alert.eventName || '') + '</div><div class="cell-secondary">' + esc(alert.sourceType || alert.eventType || '') + '</div></td>' +
+            '<td title="' + escAttr(alert.eventName || '') + '"><div class="cell-primary">' + esc(alert.eventName || '') + '</div><div class="cell-secondary">' + esc(formatAlertSource(alert.sourceType || alert.eventType || '')) + '</div></td>' +
             '<td title="' + escAttr(alert.actor || '') + '"><div class="mono">' + esc(alert.actor || '') + '</div></td>' +
             '<td title="' + escAttr(alert.sourceIp || '') + '"><div class="mono">' + esc(alert.sourceIp || '') + '</div><div class="cell-secondary mono">' + esc(alert.accountId || '') + '</div></td>' +
             '<td class="cell-nowrap"><button class="btn btn-secondary btn-sm" data-action="view-alert" data-pk="' + escAttr(alert.pk) + '" data-sk="' + escAttr(alert.sk) + '">Detail</button></td>' +
@@ -148,6 +151,13 @@ function renderAlertsTable() {
     var countEl = document.getElementById('alerts-count');
     countEl.textContent = filtered.length + ' alert' + (filtered.length !== 1 ? 's' : '') +
         (filtered.length < alertsCache.length ? ' filtered from ' + alertsCache.length : ' loaded');
+}
+
+function formatAlertSource(source) {
+    var value = String(source || '').toLowerCase();
+    if (value === 'guardduty') return 'GuardDuty';
+    if (value === 'cloudtrail') return 'CloudTrail';
+    return source || '';
 }
 
 function loadMoreAlerts() {
@@ -215,14 +225,14 @@ async function viewAlertDetail(pk, sk) {
         content.innerHTML =
             '<div class="alert-detail-hero">' +
             '<div><div class="alert-detail-title">' + esc(alert.sigmaRuleTitle || 'Unknown rule') + '</div>' +
-            '<div class="alert-detail-subtitle">CloudTrail event evidence for this detection.</div></div>' + badging + '</div>' +
+            '<div class="alert-detail-subtitle">Security event evidence for this detection.</div></div>' + badging + '</div>' +
             '<div class="evidence-grid">' +
             evidenceSection('Event evidence', contextRows) +
             evidenceSection('Actor and source', actorRows) +
             evidenceSection('AWS context', awsRows) +
             evidenceSection('Relationship', relationshipRows) +
             '</div>' +
-            '<details class="raw-details"><summary>Raw CloudTrail event</summary><pre>' + esc(rawEvent || 'No raw event stored for this alert.') + '</pre></details>';
+            '<details class="raw-details"><summary>Raw alert event</summary><pre>' + esc(rawEvent || 'No raw event stored for this alert.') + '</pre></details>';
     } catch (e) {
         content.innerHTML = '<div class="notice">Failed to load alert detail: ' + esc(e.message) + '</div>';
     }

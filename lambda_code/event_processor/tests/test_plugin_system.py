@@ -10,6 +10,7 @@ from plugins.base import EventSourcePlugin
 from plugins.registry import PluginRegistry
 from plugins.config import PluginConfig
 from plugins.cloudtrail import CloudTrailPlugin
+from plugins.guardduty import GuardDutyPlugin
 from plugins.generic import GenericEventPlugin
 
 
@@ -32,9 +33,15 @@ def generic_plugin():
 
 
 @pytest.fixture
-def full_registry(registry, cloudtrail_plugin, generic_plugin):
-    """Registry with both plugins registered (cloudtrail first)."""
+def guardduty_plugin():
+    return GuardDutyPlugin()
+
+
+@pytest.fixture
+def full_registry(registry, cloudtrail_plugin, guardduty_plugin, generic_plugin):
+    """Registry with plugins registered before the generic fallback."""
     registry.register_plugin(cloudtrail_plugin)
+    registry.register_plugin(guardduty_plugin)
     registry.register_plugin(generic_plugin)
     return registry
 
@@ -87,12 +94,49 @@ def _generic_event(**overrides):
     return base
 
 
+def _guardduty_event(**overrides):
+    base = {
+        "sigmaEventSource": "GuardDuty",
+        "eventSource": "guardduty.amazonaws.com",
+        "eventName": "UnauthorizedAccess:IAMUser/MaliciousIPCaller",
+        "eventTime": "2026-04-28T20:03:11.000Z",
+        "awsRegion": "us-east-1",
+        "recipientAccountId": "123456789012",
+        "sourceIPAddress": "198.51.100.10",
+        "remoteIpAddresses": ["198.51.100.10"],
+        "actor": "alice",
+        "target": "AKIAEXAMPLE",
+        "guardDutyFindingId": "finding-1",
+        "guardDutyFindingType": "UnauthorizedAccess:IAMUser/MaliciousIPCaller",
+        "guardDutySeverity": 5,
+        "guardDutyActionType": "AWS_API_CALL",
+        "guardDutyResourceType": "AccessKey",
+        "guardDutyFirstSeen": "2026-04-28T20:03:10.000Z",
+        "guardDutyLastSeen": "2026-04-28T20:03:11.000Z",
+        "guardDutyCount": 1,
+        "guardDutyFinding": {
+            "resource": {
+                "resourceType": "AccessKey",
+                "accessKeyDetails": {"userName": "alice", "accessKeyId": "AKIAEXAMPLE"},
+            },
+            "service": {
+                "action": {"actionType": "AWS_API_CALL"},
+                "eventFirstSeen": "2026-04-28T20:03:10.000Z",
+                "eventLastSeen": "2026-04-28T20:03:11.000Z",
+                "count": 1,
+            },
+        },
+    }
+    base.update(overrides)
+    return base
+
+
 # ===========================================================================
 # PluginRegistry
 # ===========================================================================
 class TestPluginRegistration:
     def test_register_and_list(self, full_registry, cloudtrail_plugin, generic_plugin):
-        assert len(full_registry.get_all_plugins()) == 2
+        assert len(full_registry.get_all_plugins()) == 3
         assert full_registry.get_plugin_by_name("cloudtrail") is cloudtrail_plugin
         assert full_registry.get_plugin_by_name("generic") is generic_plugin
 
@@ -114,6 +158,10 @@ class TestPluginRouting:
     def test_cloudtrail_event_routed_to_cloudtrail_plugin(self, full_registry, cloudtrail_plugin):
         plugin = full_registry.get_plugin_for_event(_cloudtrail_event())
         assert plugin is cloudtrail_plugin
+
+    def test_guardduty_event_routed_to_guardduty_plugin(self, full_registry, guardduty_plugin):
+        plugin = full_registry.get_plugin_for_event(_guardduty_event())
+        assert plugin is guardduty_plugin
 
     def test_generic_event_routed_to_generic_plugin(self, full_registry, generic_plugin):
         plugin = full_registry.get_plugin_for_event(_generic_event())
@@ -140,6 +188,7 @@ class TestPluginDiscovery:
         plugins = PluginRegistry.discover_plugins()
         names = {p.get_plugin_name() for p in plugins}
         assert "cloudtrail" in names
+        assert "guardduty" in names
         assert "generic" in names
 
     def test_discovered_plugins_are_instances(self):
@@ -274,6 +323,58 @@ class TestCloudTrailGetEventDetails:
         details = cloudtrail_plugin.get_event_details({})
         assert details["eventType"] == "unknown"
         assert details["sourceIPAddress"] == "unknown"
+
+
+# ===========================================================================
+# GuardDutyPlugin — identity, routing, and evidence
+# ===========================================================================
+class TestGuardDutyPluginIdentity:
+    def test_plugin_name(self, guardduty_plugin):
+        assert guardduty_plugin.get_plugin_name() == "guardduty"
+
+    def test_event_type(self, guardduty_plugin):
+        assert guardduty_plugin.get_event_type() == "GuardDuty"
+
+    def test_can_process_guardduty_event(self, guardduty_plugin):
+        assert guardduty_plugin.can_process_event(_guardduty_event()) is True
+
+    def test_cannot_process_cloudtrail_event(self, guardduty_plugin):
+        assert guardduty_plugin.can_process_event(_cloudtrail_event()) is False
+
+
+class TestGuardDutyExtractActor:
+    def test_explicit_actor(self, guardduty_plugin):
+        assert guardduty_plugin.extract_actor(_guardduty_event(actor="explicit")) == "explicit"
+
+    def test_fallback_to_access_key_user(self, guardduty_plugin):
+        event = _guardduty_event(actor="", guardDutyFinding={
+            "resource": {"accessKeyDetails": {"userName": "bob"}},
+            "service": {},
+        })
+        assert guardduty_plugin.extract_actor(event) == "bob"
+
+
+class TestGuardDutyGenerateEventSection:
+    def test_contains_guardduty_fields(self, guardduty_plugin):
+        section = guardduty_plugin.generate_event_section(_guardduty_event())
+        assert "GuardDuty Finding Evidence" in section
+        assert "UnauthorizedAccess:IAMUser/MaliciousIPCaller" in section
+        assert "finding-1" in section
+        assert "198.51.100.10" in section
+
+    def test_xss_escaped(self, guardduty_plugin):
+        section = guardduty_plugin.generate_event_section(_guardduty_event(guardDutyFindingId="<script>"))
+        assert "<script>" not in section
+        assert "&lt;script&gt;" in section
+
+
+class TestGuardDutyGetEventDetails:
+    def test_details_include_guardduty_fields(self, guardduty_plugin):
+        details = guardduty_plugin.get_event_details(_guardduty_event())
+        assert details["eventType"] == "GuardDuty"
+        assert details["actor"] == "alice"
+        assert details["guardDutyFindingId"] == "finding-1"
+        assert details["guardDutySeverity"] == 5
 
 
 # ===========================================================================

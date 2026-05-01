@@ -53,10 +53,11 @@ TrailAlerts fills that gap: the power to write your own rules without the cost o
 
 ## Overview
 
-TrailAlerts is designed to provide security monitoring for AWS environments by analyzing CloudTrail logs for suspicious or malicious activities. It leverages the open-source Sigma rules format to define detection patterns, allowing for easy customization and expansion of detection capabilities.
+TrailAlerts is designed to provide security monitoring for AWS environments by analyzing CloudTrail logs for suspicious or malicious activities and optionally centralizing GuardDuty findings. It leverages the open-source Sigma rules format to define CloudTrail detection patterns, while GuardDuty findings are normalized as first-class alerts and sent through the same notification and dashboard pipeline.
 
 Key features:
 - Almost real-time CloudTrail event monitoring (CloudTrail publishes log files multiple times an hour, about every 5 minutes.)
+- Optional GuardDuty S3 export ingestion for centralized AWS-native findings
 - Based on industry-standard Sigma rules format
 - Event correlation for detecting attack patterns
 - Customizable alerting thresholds and notification settings
@@ -74,10 +75,11 @@ The system uses a serverless architecture built around AWS Lambda, SQS, DynamoDB
 1. CloudTrail logs are stored in an S3 bucket
 2. The CloudTrail Analyzer Lambda function processes new log files as they arrive
 3. When a log event matches a Sigma rule, it's sent to an SQS queue
-4. The Event Processor Lambda consumes messages from the queue
-5. If `correlation_enabled` is enabled, events are stored in DynamoDB for alert history, cooldown tracking, threshold checks and correlation matching
-6. Matching events are filtered by severity/cooldown and then sent through the configured notification channels
-7. *(Optional)* If the dashboard is enabled, rules can be managed through the web UI; alert history and stats are available when DynamoDB is configured
+4. *(Optional)* GuardDuty findings exported to S3 as `.jsonl.gz` files are normalized and sent to the same SQS queue
+5. The Event Processor Lambda consumes messages from the queue
+6. If `correlation_enabled` is enabled, events are stored in DynamoDB for alert history, cooldown tracking, GuardDuty dedupe, threshold checks and correlation matching
+7. Matching events are filtered by severity/cooldown and then sent through the configured notification channels
+8. *(Optional)* If the dashboard is enabled, rules can be managed through the web UI; alert history and stats are available when DynamoDB is configured
 
 ## Technical Details
 
@@ -96,9 +98,179 @@ The analyzer uses an efficient, two-stage approach:
 
 The Lambda implements a caching system that limits S3 list operations to at most once every 5 minutes, optimizing performance and reducing API call costs when frequently invoked. If a rule reload fails after a previous successful load, the analyzer keeps the last known good rule cache and index.
 
+### GuardDuty Ingester Lambda
+
+When `enable_guardduty_ingestion = true`, TrailAlerts can read GuardDuty S3 exports from an existing findings bucket. GuardDuty exports are gzip-compressed JSON Lines files (`.jsonl.gz`), with one finding object per line. The ingester:
+
+1. Downloads and decompresses each GuardDuty export object
+2. Parses findings line by line instead of expecting a CloudTrail `Records` envelope
+3. Maps GuardDuty numeric severity to TrailAlerts notification levels (`low`, `medium`, `high`)
+4. Extracts common investigation fields such as actor, resource, action, remote IPs, account and region
+5. Sends normalized findings to the same SQS queue used by CloudTrail Sigma matches
+
+The ingester does not create or own GuardDuty detectors. Point `existing_guardduty_findings_bucket_name` at a bucket where GuardDuty already publishes findings. If TrailAlerts manages the S3 notification, keep `guardduty_manage_bucket_notification = true`; set it to `false` when another Terraform resource already owns notifications for that bucket.
+
+### Multi-Region GuardDuty Exports
+
+TrailAlerts stays centralized in one home region. For multi-region GuardDuty visibility, configure each regional GuardDuty detector to export findings to the same central findings bucket that the GuardDuty ingester reads.
+
+When `enable_guardduty_export_destinations = true`, TrailAlerts manages `aws_guardduty_publishing_destination` resources for the regions in `guardduty_export_regions`. GuardDuty detectors must already exist in those regions. This keeps detector ownership explicit and avoids accidentally disabling GuardDuty by destroying Terraform-managed detector resources.
+
+Example:
+
+```hcl
+enable_guardduty_ingestion              = true
+existing_guardduty_findings_bucket_name = "guardduty-logs-123456789012"
+guardduty_findings_kms_key_arn          = "arn:aws:kms:us-east-1:123456789012:key/abcd1234-0000-1111-2222-abcdefabcdef"
+
+enable_guardduty_export_destinations = true
+guardduty_export_regions = [
+  "us-east-1",
+  "us-west-2",
+  "eu-west-1",
+]
+```
+
+Leave `guardduty_export_destination_prefix = null` to use GuardDuty's default object layout: `AWSLogs/<account-id>/GuardDuty/<region>/`. If an existing manual publishing destination already exists in a region, import it into the new module address before applying, or remove the manual destination first.
+
+The central export bucket policy must allow `guardduty.amazonaws.com` to call `s3:GetBucketLocation` and `s3:PutObject`, and the KMS key policy must allow `kms:GenerateDataKey`. The module exposes `guardduty_export_bucket_policy_json` and `guardduty_export_kms_key_policy_json` outputs as policy documents that can be merged into existing bucket and key policies.
+
+For multi-region exports, the key change is to keep `aws:SourceAccount` exact and move `aws:SourceArn` to an `ArnLike` condition with a wildcard region:
+
+```json
+"Condition": {
+  "StringEquals": {
+    "aws:SourceAccount": "<account-id>"
+  },
+  "ArnLike": {
+    "aws:SourceArn": "arn:aws:guardduty:*:<account-id>:detector/*"
+  }
+}
+```
+
+KMS key policy statement template:
+
+```json
+{
+  "Sid": "AllowGuardDutyGenerateDataKey",
+  "Effect": "Allow",
+  "Principal": {
+    "Service": "guardduty.amazonaws.com"
+  },
+  "Action": "kms:GenerateDataKey",
+  "Resource": "*",
+  "Condition": {
+    "StringEquals": {
+      "aws:SourceAccount": "<account-id>"
+    },
+    "ArnLike": {
+      "aws:SourceArn": "arn:aws:guardduty:*:<account-id>:detector/*"
+    }
+  }
+}
+```
+
+S3 bucket policy template for the central GuardDuty findings bucket:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyNonHttpsGuardDutyAccess",
+      "Effect": "Deny",
+      "Principal": {
+        "Service": "guardduty.amazonaws.com"
+      },
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::<guardduty-export-bucket>/*",
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    },
+    {
+      "Sid": "DenyIncorrectGuardDutyKmsKey",
+      "Effect": "Deny",
+      "Principal": {
+        "Service": "guardduty.amazonaws.com"
+      },
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<guardduty-export-bucket>/*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:x-amz-server-side-encryption-aws-kms-key-id": "<kms-key-arn>"
+        }
+      }
+    },
+    {
+      "Sid": "DenyUnencryptedGuardDutyUploads",
+      "Effect": "Deny",
+      "Principal": {
+        "Service": "guardduty.amazonaws.com"
+      },
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<guardduty-export-bucket>/*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:x-amz-server-side-encryption": "aws:kms"
+        }
+      }
+    },
+    {
+      "Sid": "AllowGuardDutyPutFindings",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "guardduty.amazonaws.com"
+      },
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<guardduty-export-bucket>/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "<account-id>"
+        },
+        "ArnLike": {
+          "aws:SourceArn": "arn:aws:guardduty:*:<account-id>:detector/*"
+        }
+      }
+    },
+    {
+      "Sid": "AllowGuardDutyGetBucketLocation",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "guardduty.amazonaws.com"
+      },
+      "Action": "s3:GetBucketLocation",
+      "Resource": "arn:aws:s3:::<guardduty-export-bucket>",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "<account-id>"
+        },
+        "ArnLike": {
+          "aws:SourceArn": "arn:aws:guardduty:*:<account-id>:detector/*"
+        }
+      }
+    }
+  ]
+}
+```
+
+If `guardduty_export_destination_prefix` is set, replace the object resource `arn:aws:s3:::<guardduty-export-bucket>/*` with `arn:aws:s3:::<guardduty-export-bucket>/<prefix>/*`. For AWS GovCloud or China partitions, replace `arn:aws` with the partition used by the account, such as `arn:aws-us-gov` or `arn:aws-cn`.
+
+To add another GuardDuty region later:
+
+1. Enable GuardDuty in the new AWS region first, using the AWS console, AWS CLI or your AWS Organizations GuardDuty administrator account.
+2. Confirm the central findings bucket policy and KMS key policy include the GuardDuty permissions described above. The generated policy documents use a regional wildcard GuardDuty detector ARN, so the same statements can cover additional regions in the same account.
+3. Add the region to `guardduty_export_regions` in Terraform.
+4. Run `terraform plan` and confirm Terraform will create one new `aws_guardduty_publishing_destination` for that region.
+5. Run `terraform apply`.
+
+If the region already has a manually configured GuardDuty publishing destination, import that destination into the module address before applying, or delete the manual destination first. GuardDuty supports one publishing destination per detector, so Terraform should not try to create a duplicate.
+
 ### Event Processor Lambda
 
-The Event Processor Lambda (`SigmaEventProcessor`) handles events from the SQS queue and:
+The Event Processor Lambda (`SigmaEventProcessor`) handles CloudTrail and GuardDuty events from the SQS queue and:
 
 1. Extracts data from the event
 2. Checks if the event should be excluded based on exception rules
@@ -480,10 +652,13 @@ After `terraform apply`, the dashboard URL is available in the `dashboard_url` o
 
 If you already have a CloudTrail bucket, set `create_cloudtrail = false` and provide `existing_cloudtrail_bucket_name`.
 
-See the `examples/` folder for a runnable example. Required Terraform variables are `aws_region` and `email_endpoint`; the current Event Processor runtime also expects `source_email` to be non-empty. Common outputs include CloudWatch Log Group ARNs: `trailalerts_cloudtrail_analyzer_log_group_arn` and `trailalerts_event_processor_log_group_arn`.
+See the `examples/` folder for a runnable example. Required Terraform variables are `aws_region` and `email_endpoint`; the current Event Processor runtime also expects `source_email` to be non-empty. Common outputs include CloudWatch Log Group ARNs: `trailalerts_cloudtrail_analyzer_log_group_arn`, `trailalerts_guardduty_ingester_log_group_arn` and `trailalerts_event_processor_log_group_arn`.
 
 Notes:
 - The analyzer Lambda S3 trigger only invokes on `.json.gz` objects. For existing buckets with a known CloudTrail path prefix, set `cloudtrail_log_filter_prefix` to reduce unnecessary Lambda invocations further.
+- The GuardDuty ingester Lambda S3 trigger only invokes on `.jsonl.gz` objects by default. For existing GuardDuty export buckets with a known prefix, set `guardduty_findings_prefix` to reduce unnecessary Lambda invocations.
+- For centralized multi-region GuardDuty, enable GuardDuty detectors in each monitored region, then set `enable_guardduty_export_destinations = true` and list those regions in `guardduty_export_regions`.
+- S3 supports one notification configuration per bucket. Leave `guardduty_manage_bucket_notification = true` only when TrailAlerts should own notifications for the GuardDuty findings bucket.
 - To use SES delivery, verify `source_email` and ensure the account is out of the SES sandbox. With SNS enabled, SNS is used for email delivery and SES is not used.
 - To use the dashboard's alert history and overview statistics, set `correlation_enabled = true` so the shared DynamoDB table is created.
 - Check Lambda logs in CloudWatch for debugging.
@@ -495,13 +670,13 @@ Notes:
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | > 1 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | > 6.0.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.43.0 |
 
 ## Providers
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.20.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.43.0 |
 
 ## Modules
 
@@ -509,8 +684,10 @@ Notes:
 |------|--------|---------|
 | <a name="module_cloudtrail"></a> [cloudtrail](#module\_cloudtrail) | ./modules/cloudtrail | n/a |
 | <a name="module_dynamodb"></a> [dynamodb](#module\_dynamodb) | ./modules/dynamodb | n/a |
+| <a name="module_guardduty_export_destinations"></a> [guardduty\_export\_destinations](#module\_guardduty\_export\_destinations) | ./modules/guardduty-export-destinations | n/a |
 | <a name="module_lambda_cloudtrail_analyzer"></a> [lambda\_cloudtrail\_analyzer](#module\_lambda\_cloudtrail\_analyzer) | ./modules/lambda-cloudtrail-analyzer | n/a |
 | <a name="module_lambda_event_processor"></a> [lambda\_event\_processor](#module\_lambda\_event\_processor) | ./modules/lambda-event-processor | n/a |
+| <a name="module_lambda_guardduty_ingester"></a> [lambda\_guardduty\_ingester](#module\_lambda\_guardduty\_ingester) | ./modules/lambda-guardduty-ingester | n/a |
 | <a name="module_lambda_layer"></a> [lambda\_layer](#module\_lambda\_layer) | ./modules/lambda-layer | n/a |
 | <a name="module_s3"></a> [s3](#module\_s3) | ./modules/s3 | n/a |
 | <a name="module_sns"></a> [sns](#module\_sns) | ./modules/sns | n/a |
@@ -524,6 +701,7 @@ Notes:
 | Name | Type |
 |------|------|
 | [aws_s3_bucket.existing_cloudtrail_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/s3_bucket) | data source |
+| [aws_s3_bucket.existing_guardduty_findings](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/s3_bucket) | data source |
 
 ## Inputs
 
@@ -538,6 +716,17 @@ Notes:
 | <a name="input_enable_sns"></a> [enable\_sns](#input\_enable\_sns) | Whether to create SNS topic and subscription | `bool` | `true` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment identifier (e.g., dev, prod, staging) for resource tagging and isolation | `string` | `"dev"` | no |
 | <a name="input_existing_cloudtrail_bucket_name"></a> [existing\_cloudtrail\_bucket\_name](#input\_existing\_cloudtrail\_bucket\_name) | Name of existing CloudTrail bucket when create\_cloudtrail is false | `string` | `""` | no |
+| <a name="input_enable_guardduty_ingestion"></a> [enable\_guardduty\_ingestion](#input\_enable\_guardduty\_ingestion) | Whether to ingest GuardDuty S3 export findings into the TrailAlerts notification and dashboard pipeline | `bool` | `false` | no |
+| <a name="input_enable_guardduty_export_destinations"></a> [enable\_guardduty\_export\_destinations](#input\_enable\_guardduty\_export\_destinations) | Whether TrailAlerts should manage GuardDuty publishing destinations in multiple regions so findings are exported to the central GuardDuty findings bucket | `bool` | `false` | no |
+| <a name="input_existing_guardduty_findings_bucket_name"></a> [existing\_guardduty\_findings\_bucket\_name](#input\_existing\_guardduty\_findings\_bucket\_name) | Name of the existing S3 bucket where GuardDuty exports JSONL findings when enable\_guardduty\_ingestion is true | `string` | `""` | no |
+| <a name="input_guardduty_export_regions"></a> [guardduty\_export\_regions](#input\_guardduty\_export\_regions) | AWS regions where existing GuardDuty detectors should export findings to the central TrailAlerts findings bucket | `list(string)` | `[]` | no |
+| <a name="input_guardduty_export_destination_prefix"></a> [guardduty\_export\_destination\_prefix](#input\_guardduty\_export\_destination\_prefix) | Optional prefix appended to the GuardDuty export bucket ARN for managed publishing destinations | `string` | `null` | no |
+| <a name="input_guardduty_findings_prefix"></a> [guardduty\_findings\_prefix](#input\_guardduty\_findings\_prefix) | Optional S3 object key prefix used to limit GuardDuty ingester Lambda invocations | `string` | `null` | no |
+| <a name="input_guardduty_findings_filter_suffix"></a> [guardduty\_findings\_filter\_suffix](#input\_guardduty\_findings\_filter\_suffix) | S3 object key suffix used to limit GuardDuty ingester Lambda invocations | `string` | `".jsonl.gz"` | no |
+| <a name="input_guardduty_min_severity"></a> [guardduty\_min\_severity](#input\_guardduty\_min\_severity) | Minimum numeric GuardDuty severity to ingest | `number` | `0` | no |
+| <a name="input_guardduty_include_archived"></a> [guardduty\_include\_archived](#input\_guardduty\_include\_archived) | Whether archived GuardDuty findings should be ingested | `bool` | `false` | no |
+| <a name="input_guardduty_findings_kms_key_arn"></a> [guardduty\_findings\_kms\_key\_arn](#input\_guardduty\_findings\_kms\_key\_arn) | Optional KMS key ARN used to decrypt GuardDuty exported findings | `string` | `""` | no |
+| <a name="input_guardduty_manage_bucket_notification"></a> [guardduty\_manage\_bucket\_notification](#input\_guardduty\_manage\_bucket\_notification) | Whether TrailAlerts should manage the S3 bucket notification for the GuardDuty findings bucket | `bool` | `true` | no |
 | <a name="input_include_global_service_events"></a> [include\_global\_service\_events](#input\_include\_global\_service\_events) | Whether to include global service events in CloudTrail logs | `bool` | `true` | no |
 | <a name="input_is_multi_region_trail"></a> [is\_multi\_region\_trail](#input\_is\_multi\_region\_trail) | Whether the CloudTrail should log events for all regions | `bool` | `true` | no |
 | <a name="input_min_notification_severity"></a> [min\_notification\_severity](#input\_min\_notification\_severity) | Minimum severity threshold for sending notifications (critical, high, medium, low, info) | `string` | `"medium"` | no |
@@ -558,6 +747,10 @@ Notes:
 |------|-------------|
 | <a name="output_trailalerts_cloudtrail_analyzer_log_group_arn"></a> [trailalerts\_cloudtrail\_analyzer\_log\_group\_arn](#output\_trailalerts\_cloudtrail\_analyzer\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the CloudTrail Analyzer Lambda function |
 | <a name="output_trailalerts_event_processor_log_group_arn"></a> [trailalerts\_event\_processor\_log\_group\_arn](#output\_trailalerts\_event\_processor\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the Event Processor Lambda function |
+| <a name="output_trailalerts_guardduty_ingester_log_group_arn"></a> [trailalerts\_guardduty\_ingester\_log\_group\_arn](#output\_trailalerts\_guardduty\_ingester\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the GuardDuty Ingester Lambda function |
+| <a name="output_guardduty_export_destination_ids"></a> [guardduty\_export\_destination\_ids](#output\_guardduty\_export\_destination\_ids) | GuardDuty publishing destination IDs keyed by region |
+| <a name="output_guardduty_export_bucket_policy_json"></a> [guardduty\_export\_bucket\_policy\_json](#output\_guardduty\_export\_bucket\_policy\_json) | Policy document that can be merged into the central GuardDuty export bucket policy |
+| <a name="output_guardduty_export_kms_key_policy_json"></a> [guardduty\_export\_kms\_key\_policy\_json](#output\_guardduty\_export\_kms\_key\_policy\_json) | Policy document that can be merged into the GuardDuty export KMS key policy |
 | <a name="output_dashboard_url"></a> [dashboard\_url](#output\_dashboard\_url) | URL to access the TrailAlerts dashboard (only when enable\_dashboard is true) |
 | <a name="output_dashboard_api_endpoint"></a> [dashboard\_api\_endpoint](#output\_dashboard\_api\_endpoint) | API Gateway endpoint for the dashboard API (only when enable\_dashboard is true) |
 | <a name="output_dashboard_cognito_user_pool_id"></a> [dashboard\_cognito\_user\_pool\_id](#output\_dashboard\_cognito\_user\_pool\_id) | Cognito User Pool ID for the dashboard (only when enable\_dashboard is true) |

@@ -172,13 +172,35 @@ def test_get_alerts_continues_loading_until_limit_is_filled(monkeypatch, decode_
     assert body["nextToken"] == json.dumps({"pk": "EVENT", "sk": "2026-04-04T11:59:00#2"})
 
 
+def test_get_alerts_can_filter_by_source(monkeypatch, decode_body):
+    fake_table = FakeTable(
+        pages=[
+            {
+                "Items": [
+                    {"pk": "EVENT", "sk": "2026-04-04T12:00:00#1", "timestamp": "2026-04-04T12:00:00", "sourceType": "guardduty"}
+                ],
+                "ScannedCount": 1,
+            }
+        ]
+    )
+    monkeypatch.setattr(dashboard_api, "_get_table", lambda: fake_table)
+
+    response = dashboard_api.get_alerts({"limit": "10", "hours": "24", "source": "guardduty"})
+    body = decode_body(response)
+
+    assert response["statusCode"] == 200
+    assert len(body["alerts"]) == 1
+    assert fake_table.query_calls[0]["IndexName"] == "sourceTypeIndex"
+    assert fake_table.query_calls[0]["ExpressionAttributeValues"][":source"] == "guardduty"
+
+
 def test_get_alert_stats_uses_event_query_instead_of_scanning_all_items(monkeypatch, decode_body):
     fake_table = FakeTable(
         pages=[
             {
                 "Items": [
-                    {"pk": "EVENT", "timestamp": "2026-04-04T12:00:00", "severity": "high", "sigmaRuleTitle": "Suspicious Console Login"},
-                    {"pk": "EVENT", "timestamp": "2026-04-04T11:00:00", "severity": "medium", "sigmaRuleTitle": "IAM User Created"},
+                    {"pk": "EVENT", "timestamp": "2026-04-04T12:00:00", "severity": "high", "sigmaRuleTitle": "Suspicious Console Login", "sourceType": "cloudtrail"},
+                    {"pk": "EVENT", "timestamp": "2026-04-04T11:00:00", "severity": "medium", "sigmaRuleTitle": "IAM User Created", "sourceType": "guardduty"},
                 ],
                 "ScannedCount": 2,
             }
@@ -195,6 +217,7 @@ def test_get_alert_stats_uses_event_query_instead_of_scanning_all_items(monkeypa
         {"rule": "Suspicious Console Login", "count": 1, "severity": "high"},
         {"rule": "IAM User Created", "count": 1, "severity": "medium"},
     ]
+    assert body["bySource"] == {"cloudtrail": 1, "guardduty": 1}
     assert len(fake_table.query_calls) == 1
     assert fake_table.query_calls[0]["IndexName"] == "recentAlertsIndex"
     assert fake_table.query_calls[0]["ExpressionAttributeValues"][":pk"] == "EVENT"

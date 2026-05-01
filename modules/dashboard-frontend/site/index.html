@@ -321,6 +321,11 @@
                             <option value="168">Last 7d</option>
                             <option value="720">Last 30d</option>
                         </select>
+                        <select class="filter-select" id="alert-source-filter" aria-label="Alert source">
+                            <option value="">All sources</option>
+                            <option value="cloudtrail">CloudTrail</option>
+                            <option value="guardduty">GuardDuty</option>
+                        </select>
                         <div class="search-shell">
                             <span class="search-kbd" aria-hidden="true">/</span>
                             <input type="text" class="filter-input search-input" id="alert-rule-filter" placeholder="Search alerts" autocomplete="off" aria-label="Search alerts">
@@ -336,7 +341,7 @@
                     </select>
                 </div>
                 <div class="table-scroll">
-                    <table>
+                    <table class="alerts-table">
                         <thead><tr>
                             <th class="sortable" data-sort="timestamp" data-action="sort-alerts">Time</th>
                             <th class="sortable" data-sort="sigmaRuleTitle" data-action="sort-alerts">Rule</th>
