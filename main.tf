@@ -70,6 +70,23 @@ data "aws_s3_bucket" "existing_cloudtrail_logs" {
   bucket = var.existing_cloudtrail_bucket_name
 }
 
+data "aws_s3_bucket" "existing_guardduty_findings" {
+  count  = var.enable_guardduty_ingestion || var.enable_guardduty_export_destinations ? 1 : 0
+  bucket = var.existing_guardduty_findings_bucket_name
+}
+
+module "guardduty_export_destinations" {
+  source = "./modules/guardduty-export-destinations"
+  count  = var.enable_guardduty_export_destinations ? 1 : 0
+
+  project                             = var.project
+  environment                         = var.environment
+  guardduty_export_regions            = var.guardduty_export_regions
+  guardduty_findings_bucket_arn       = data.aws_s3_bucket.existing_guardduty_findings[0].arn
+  guardduty_findings_kms_key_arn      = var.guardduty_findings_kms_key_arn
+  guardduty_export_destination_prefix = var.guardduty_export_destination_prefix
+}
+
 
 module "lambda_cloudtrail_analyzer" {
   source = "./modules/lambda-cloudtrail-analyzer"
@@ -85,6 +102,25 @@ module "lambda_cloudtrail_analyzer" {
   trailalerts_detection_layer_arn = module.lambda_layer.trailalerts_detection_layer_arn
   trailalerts_rules_bucket        = module.s3.trailalerts_rules_bucket_name
   cloudtrail_log_filter_prefix    = var.cloudtrail_log_filter_prefix
+}
+
+module "lambda_guardduty_ingester" {
+  source = "./modules/lambda-guardduty-ingester"
+  count  = var.enable_guardduty_ingestion ? 1 : 0
+
+  project                              = var.project
+  environment                          = var.environment
+  cloudwatch_logs_retention_days       = var.cloudwatch_logs_retention_days
+  trailalerts_alerts_queue_arn         = module.sqs.trailalerts_alerts_queue_arn
+  trailalerts_alerts_queue_url         = module.sqs.trailalerts_alerts_queue_url
+  guardduty_findings_bucket_id         = data.aws_s3_bucket.existing_guardduty_findings[0].id
+  guardduty_findings_bucket_arn        = data.aws_s3_bucket.existing_guardduty_findings[0].arn
+  guardduty_findings_prefix            = var.guardduty_findings_prefix
+  guardduty_findings_filter_suffix     = var.guardduty_findings_filter_suffix
+  guardduty_min_severity               = var.guardduty_min_severity
+  guardduty_include_archived           = var.guardduty_include_archived
+  guardduty_findings_kms_key_arn       = var.guardduty_findings_kms_key_arn
+  guardduty_manage_bucket_notification = var.guardduty_manage_bucket_notification
 }
 
 # ---------------------------------------------------------------------------

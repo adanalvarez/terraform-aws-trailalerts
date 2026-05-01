@@ -200,7 +200,7 @@ button.stat-card:hover { border-color: var(--azure); box-shadow: var(--shadow); 
 
 .table-wrap { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-soft); overflow: hidden; }
 .stacked-table { margin-bottom: 18px; }
-.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-toolbar { display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; }
 .table-toolbar strong { color: var(--deep); font-size: 15px; font-weight: 700; }
 .toolbar-spacer { flex: 1 1 auto; }
@@ -342,6 +342,19 @@ th.sortable.desc::after { border-top: 5px solid #FFFFFF; }
 .pagination-count { color: var(--muted); font-size: 13px; }
 
 .alert-row-title { max-width: 360px; }
+.alerts-table { table-layout: fixed; min-width: 960px; }
+.alerts-table th:nth-child(1), .alerts-table td:nth-child(1) { width: 118px; }
+.alerts-table th:nth-child(2), .alerts-table td:nth-child(2) { width: 265px; }
+.alerts-table th:nth-child(3), .alerts-table td:nth-child(3) { width: 102px; }
+.alerts-table th:nth-child(5), .alerts-table td:nth-child(5) { width: 116px; }
+.alerts-table th:nth-child(6), .alerts-table td:nth-child(6) { width: 128px; }
+.alerts-table th:nth-child(7), .alerts-table td:nth-child(7) { width: 96px; }
+.alerts-table td { overflow-wrap: anywhere; }
+.alerts-table .cell-primary, .alerts-table .cell-secondary, .alerts-table .mono { overflow-wrap: anywhere; word-break: normal; }
+.alerts-table th:last-child, .alerts-table td:last-child { position: sticky; right: 0; z-index: 1; text-align: right; }
+.alerts-table th:last-child { z-index: 2; box-shadow: -1px 0 0 rgba(255, 255, 255, 0.12); }
+.alerts-table td:last-child { background: var(--paper); box-shadow: -1px 0 0 var(--line-soft); }
+.alerts-table tr:hover td:last-child { background: #EDF8FC; }
 .alert-detail-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; margin-bottom: 18px; padding: 16px; background: var(--surface-strong); border: 1px solid var(--line); border-radius: var(--radius); }
 .alert-detail-title { color: var(--deep); font-family: var(--display); font-size: 22px; font-weight: 700; line-height: 1.2; }
 .alert-detail-subtitle { color: var(--muted); font-size: 13px; margin-top: 6px; }

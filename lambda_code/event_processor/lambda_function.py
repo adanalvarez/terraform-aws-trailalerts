@@ -182,12 +182,17 @@ def register_plugins() -> None:
     """Register plugins with the plugin registry."""
     # Import plugins
     from plugins.cloudtrail import CloudTrailPlugin
+    from plugins.guardduty import GuardDutyPlugin
     from plugins.generic import GenericEventPlugin
-    
+
     # Always register CloudTrail plugin
     plugin_registry.register_plugin(CloudTrailPlugin())
     logger.info("Registered CloudTrail plugin")
-    
+
+    # Register GuardDuty before the generic fallback.
+    plugin_registry.register_plugin(GuardDutyPlugin())
+    logger.info("Registered GuardDuty plugin")
+
     # Register Generic plugin (always enabled as fallback)
     plugin_registry.register_plugin(GenericEventPlugin())
     logger.info("Registered Generic plugin")
@@ -238,7 +243,12 @@ def process_event(matched_event: Dict[str, Any], rule_metadata: Dict[str, Any], 
         return
     
     logger.info(f"Using plugin '{plugin.get_plugin_name()}' for event type '{plugin.get_event_type()}'")
-    
+
+    if matched_event.get("sigmaEventSource") == "GuardDuty" and dynamodb_helper:
+        dedupe_key = matched_event.get("guardDutyDedupeKey")
+        if dedupe_key and not dynamodb_helper.mark_guardduty_finding_seen(dedupe_key):
+            return
+
     # Check if the event should be excluded based on exception rules
     rule_title = rule_metadata.get('title', 'unknown')
     if exception_helper and exception_helper.is_excluded(rule_title, matched_event):

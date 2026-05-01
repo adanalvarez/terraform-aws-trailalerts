@@ -55,30 +55,66 @@ resource "aws_dynamodb_table" "security_events" {
 
   # GSI for correlation/event queries
   global_secondary_index {
-    name            = "eventNameIndex"
-    hash_key        = "eventName"
-    range_key       = "timestamp"
+    name = "eventNameIndex"
+
+    key_schema {
+      attribute_name = "eventName"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "timestamp"
+      key_type       = "RANGE"
+    }
+
     projection_type = "ALL"
   }
 
   global_secondary_index {
-    name            = "sourceTypeIndex"
-    hash_key        = "sourceType"
-    range_key       = "timestamp"
+    name = "sourceTypeIndex"
+
+    key_schema {
+      attribute_name = "sourceType"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "timestamp"
+      key_type       = "RANGE"
+    }
+
     projection_type = "ALL"
   }
 
   global_secondary_index {
-    name            = "sigmaRuleTitleIndex"
-    hash_key        = "sigmaRuleTitle"
-    range_key       = "timestamp"
+    name = "sigmaRuleTitleIndex"
+
+    key_schema {
+      attribute_name = "sigmaRuleTitle"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "timestamp"
+      key_type       = "RANGE"
+    }
+
     projection_type = "ALL"
   }
 
   global_secondary_index {
-    name            = "recentAlertsIndex"
-    hash_key        = "pk"
-    range_key       = "timestamp"
+    name = "recentAlertsIndex"
+
+    key_schema {
+      attribute_name = "pk"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "timestamp"
+      key_type       = "RANGE"
+    }
+
     projection_type = "ALL"
   }
 

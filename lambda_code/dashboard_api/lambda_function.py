@@ -389,7 +389,7 @@ def _test_sigma_rule(rule: dict, sample_event: dict) -> dict:
 
 _ALERT_SUMMARY_PROJECTION = (
     "pk, sk, #ts, actor, target, accountId, severity, sourceIp, "
-    "userAgent, sigmaRuleId, sigmaRuleTitle, eventName, sourceType, eventType"
+    "userAgent, sigmaRuleId, sigmaRuleTitle, eventName, sourceType, eventType, awsRegion"
 )
 
 _SEVERITY_RANK = {
@@ -427,7 +427,7 @@ def _query_alert_stats_window(table, start: datetime, end: datetime) -> list[dic
             ":start": start.isoformat(),
             ":end": end.isoformat(),
         },
-        "ProjectionExpression": "#ts, severity, sigmaRuleTitle",
+        "ProjectionExpression": "#ts, severity, sigmaRuleTitle, sourceType",
         "ScanIndexForward": False,
     }
 
@@ -446,10 +446,14 @@ def _query_alert_stats_window(table, start: datetime, end: datetime) -> list[dic
 
 def _aggregate_alert_stats(items: list[dict]) -> dict:
     by_severity = {}
+    by_source = {}
     by_rule = {}
     for item in items:
         sev = str(item.get("severity", "unknown") or "unknown").lower()
         by_severity[sev] = by_severity.get(sev, 0) + 1
+
+        source = str(item.get("sourceType", "unknown") or "unknown").lower()
+        by_source[source] = by_source.get(source, 0) + 1
 
         rule = item.get("sigmaRuleTitle", "unknown") or "unknown"
         rule_stats = by_rule.setdefault(rule, {"count": 0, "severity": sev})
@@ -463,6 +467,7 @@ def _aggregate_alert_stats(items: list[dict]) -> dict:
     return {
         "totalAlerts": len(items),
         "bySeverity": by_severity,
+        "bySource": by_source,
         "topRules": [{"rule": rule, "count": data["count"], "severity": data["severity"]} for rule, data in top_rules],
     }
 
@@ -847,6 +852,7 @@ def get_alerts(params: dict) -> dict:
         limit = max(1, min(int(params.get("limit", 50)), 200))
         rule_filter = (params.get("rule", "") or "").strip()
         severity_filter = (params.get("severity", "") or "").strip()
+        source_filter = (params.get("source", "") or "").strip().lower()
         hours = max(1, int(params.get("hours", 24)))
         exclusive_start_key = _parse_next_token(params.get("nextToken", ""))
 
@@ -867,10 +873,18 @@ def get_alerts(params: dict) -> dict:
                 "ProjectionExpression": _ALERT_SUMMARY_PROJECTION,
                 "ScanIndexForward": False,
             }
-
-            if severity_filter:
-                query_params["FilterExpression"] = "severity = :sev"
-                query_params["ExpressionAttributeValues"][":sev"] = severity_filter
+        elif source_filter:
+            query_params = {
+                "IndexName": "sourceTypeIndex",
+                "KeyConditionExpression": "sourceType = :source AND #ts >= :start",
+                "ExpressionAttributeNames": {"#ts": "timestamp"},
+                "ExpressionAttributeValues": {
+                    ":source": source_filter,
+                    ":start": start_time,
+                },
+                "ProjectionExpression": _ALERT_SUMMARY_PROJECTION,
+                "ScanIndexForward": False,
+            }
         else:
             query_params = {
                 "IndexName": "recentAlertsIndex",
@@ -884,9 +898,15 @@ def get_alerts(params: dict) -> dict:
                 "ScanIndexForward": False,
             }
 
-            if severity_filter:
-                query_params["FilterExpression"] = "severity = :sev"
-                query_params["ExpressionAttributeValues"][":sev"] = severity_filter
+        filter_expressions = []
+        if severity_filter:
+            filter_expressions.append("severity = :sev")
+            query_params["ExpressionAttributeValues"][":sev"] = severity_filter
+        if source_filter and rule_filter:
+            filter_expressions.append("sourceType = :source")
+            query_params["ExpressionAttributeValues"][":source"] = source_filter
+        if filter_expressions:
+            query_params["FilterExpression"] = " AND ".join(filter_expressions)
 
         if exclusive_start_key:
             query_params["ExclusiveStartKey"] = exclusive_start_key
@@ -1412,9 +1432,21 @@ def put_exceptions(body: str) -> dict:
 
 def lambda_handler(event, context):
     """Main handler — routes HTTP API v2 events."""
-    logger.info(f"Received event: {json.dumps(event, default=str)}")
+    request_context = event.get("requestContext", {}) or {}
+    http = request_context.get("http", {}) or {}
+    auth_claims = ((request_context.get("authorizer") or {}).get("jwt") or {}).get("claims") or {}
+    safe_request_log = {
+        "requestId": request_context.get("requestId"),
+        "method": http.get("method", ""),
+        "path": event.get("rawPath", ""),
+        "routeKey": request_context.get("routeKey"),
+        "sourceIp": http.get("sourceIp"),
+        "queryParamKeys": sorted((event.get("queryStringParameters") or {}).keys()),
+    }
+    if auth_claims.get("sub"):
+        safe_request_log["principalSub"] = auth_claims.get("sub")
+    logger.info("Received request: %s", json.dumps(safe_request_log, default=str))
 
-    http = event.get("requestContext", {}).get("http", {})
     method = http.get("method", "")
     path = event.get("rawPath", "")
     params = event.get("queryStringParameters") or {}

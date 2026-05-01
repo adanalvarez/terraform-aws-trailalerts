@@ -28,8 +28,8 @@ class DynamoDBHelper:
         now = datetime.utcnow()
         now_iso = now.isoformat()
         
-        # Get actor from event
-        actor = event.get("userIdentity", {}).get("arn", "unknown")
+        # Non-CloudTrail producers, such as GuardDuty, normalize actor directly.
+        actor = event.get("actor") or event.get("userIdentity", {}).get("arn", "unknown")
         rule_title = rule.get("title", "unknown")
         
         # Determine partition key based on event type
@@ -71,6 +71,7 @@ class DynamoDBHelper:
             "actor": actor,
             "target": self._extract_target(event),
             "accountId": event.get("recipientAccountId", "unknown"),
+            "awsRegion": event.get("awsRegion", event.get("region", "unknown")),
             "severity": rule.get("level", "info"),
             "sourceIp": event.get("sourceIPAddress", "unknown"),
             "userAgent": event.get("userAgent", "unknown"),
@@ -102,6 +103,34 @@ class DynamoDBHelper:
                     raise
                 logger.warning(f"Retry {attempt + 1}/{max_retries} after DynamoDB error", extra={"error": str(e)})
 
+    def mark_guardduty_finding_seen(self, dedupe_key: str, ttl_days: int = 30) -> bool:
+        """Record a GuardDuty finding update key and return False if it was already processed."""
+        if not dedupe_key:
+            return True
+
+        now = datetime.utcnow()
+        ttl_time = now + timedelta(days=ttl_days)
+        ttl_timestamp = int(ttl_time.replace(tzinfo=timezone.utc).timestamp())
+
+        try:
+            self.table.put_item(
+                Item={
+                    "pk": "GUARDDUTY_DEDUPE",
+                    "sk": dedupe_key,
+                    "firstSeenAt": now.isoformat(),
+                    "ttl": ttl_timestamp,
+                },
+                ConditionExpression="attribute_not_exists(pk)"
+            )
+            logger.info(f"Recorded GuardDuty dedupe key: {dedupe_key}")
+            return True
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                logger.info(f"Skipping duplicate GuardDuty finding update: {dedupe_key}")
+                return False
+            logger.warning(f"Unable to record GuardDuty dedupe key, continuing: {str(e)}")
+            return True
+
     def _extract_target(self, event: Dict[str, Any]) -> str:
         """
         Extract a meaningful target from the CloudTrail event.
@@ -113,6 +142,8 @@ class DynamoDBHelper:
             String representing the target of the event
         """
         try:
+            if event.get("target"):
+                return str(event["target"])
             if "requestParameters" in event:
                 for key, value in event["requestParameters"].items():
                     if isinstance(value, str):

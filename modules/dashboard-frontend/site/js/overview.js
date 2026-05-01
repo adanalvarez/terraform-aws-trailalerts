@@ -75,9 +75,11 @@ function openOverviewAlertFilter(severity) {
     var severityFilter = document.getElementById('alert-severity-filter');
     var hoursFilter = document.getElementById('alert-hours-filter');
     var ruleFilter = document.getElementById('alert-rule-filter');
+    var sourceFilter = document.getElementById('alert-source-filter');
     if (severityFilter) severityFilter.value = severity || '';
     if (hoursFilter) hoursFilter.value = '24';
     if (ruleFilter) ruleFilter.value = '';
+    if (sourceFilter) sourceFilter.value = '';
     showPage('alerts');
 }
 
@@ -115,7 +117,7 @@ async function loadOverview() {
 
     var topRules = stats.topRules || [];
     if (!topRules.length) {
-        tbody.innerHTML = emptyTableRow(3, 'No alerts in the last 24 hours', 'New CloudTrail detections will appear here.');
+        tbody.innerHTML = emptyTableRow(3, 'No alerts in the last 24 hours', 'New detections will appear here.');
         return;
     }
 

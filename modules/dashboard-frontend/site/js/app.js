@@ -148,6 +148,9 @@ function wireStaticHandlers() {
 
     var alertHours = document.getElementById('alert-hours-filter');
     if (alertHours) alertHours.addEventListener('change', function () { loadAlerts(); });
+
+    var alertSource = document.getElementById('alert-source-filter');
+    if (alertSource) alertSource.addEventListener('change', function () { loadAlerts(); });
 }
 
 (function init() {

@@ -32,6 +32,82 @@ variable "cloudtrail_log_filter_prefix" {
   default     = null
 }
 
+variable "enable_guardduty_ingestion" {
+  description = "Whether to ingest GuardDuty S3 export findings into the TrailAlerts notification and dashboard pipeline. Requires an existing GuardDuty findings export bucket."
+  type        = bool
+  default     = false
+}
+
+variable "existing_guardduty_findings_bucket_name" {
+  description = "Name of the existing S3 bucket where GuardDuty exports JSONL findings when enable_guardduty_ingestion is true."
+  type        = string
+  default     = ""
+}
+
+variable "guardduty_findings_prefix" {
+  description = "Optional S3 object key prefix used to limit GuardDuty ingester Lambda invocations. GuardDuty defaults to AWSLogs/<account-id>/GuardDuty/<region>/ when no destination prefix is set."
+  type        = string
+  default     = null
+}
+
+variable "guardduty_findings_filter_suffix" {
+  description = "S3 object key suffix used to limit GuardDuty ingester Lambda invocations. GuardDuty S3 exports are gzip-compressed JSON Lines by default."
+  type        = string
+  default     = ".jsonl.gz"
+}
+
+variable "guardduty_min_severity" {
+  description = "Minimum numeric GuardDuty severity to ingest. Defaults to 4 (medium and higher). Set 0 to ingest all findings, or 7 for high findings only."
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.guardduty_min_severity >= 0 && var.guardduty_min_severity <= 10
+    error_message = "guardduty_min_severity must be between 0 and 10."
+  }
+}
+
+variable "guardduty_include_archived" {
+  description = "Whether archived GuardDuty findings should be ingested. Leave false to process only active findings."
+  type        = bool
+  default     = false
+}
+
+variable "guardduty_findings_kms_key_arn" {
+  description = "Optional KMS key ARN used to encrypt GuardDuty exported findings and grant the ingester Lambda kms:Decrypt for exported objects. Required when enable_guardduty_export_destinations is true."
+  type        = string
+  default     = ""
+}
+
+variable "enable_guardduty_export_destinations" {
+  description = "Whether TrailAlerts should manage GuardDuty publishing destinations in multiple regions so findings are exported to the central GuardDuty findings bucket. GuardDuty detectors must already exist in guardduty_export_regions."
+  type        = bool
+  default     = false
+}
+
+variable "guardduty_export_regions" {
+  description = "AWS regions where existing GuardDuty detectors should export findings to the central TrailAlerts findings bucket when enable_guardduty_export_destinations is true."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.guardduty_export_regions) == length(distinct(var.guardduty_export_regions))
+    error_message = "guardduty_export_regions must not contain duplicate regions."
+  }
+}
+
+variable "guardduty_export_destination_prefix" {
+  description = "Optional prefix appended to the GuardDuty export bucket ARN for managed publishing destinations. Leave null to use GuardDuty's AWSLogs/<account-id>/GuardDuty/<region>/ default layout."
+  type        = string
+  default     = null
+}
+
+variable "guardduty_manage_bucket_notification" {
+  description = "Whether TrailAlerts should manage the S3 bucket notification for the GuardDuty findings bucket. Disable when another Terraform resource already owns notifications for that bucket."
+  type        = bool
+  default     = true
+}
+
 variable "enable_sns" {
   description = "Whether to create SNS topic and subscription"
   type        = bool
