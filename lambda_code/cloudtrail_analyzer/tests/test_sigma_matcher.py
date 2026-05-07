@@ -140,6 +140,9 @@ class TestEvaluateBlock:
     def test_re_invalid_pattern(self):
         assert evaluate_block({"name": "abc"}, {"name|re": r"[invalid"}) is False
 
+    def test_re_rejects_nested_quantifier_pattern(self):
+        assert evaluate_block({"name": "aaaaaaaaaaaaaaaa!"}, {"name|re": r"(a+)+b"}) is False
+
     def test_re_none_value(self):
         assert evaluate_block({}, {"name|re": r".*"}) is False
 

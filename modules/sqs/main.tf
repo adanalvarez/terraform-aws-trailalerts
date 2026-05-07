@@ -8,5 +8,6 @@ resource "aws_sqs_queue" "trailalerts_alerts_queue" {
   message_retention_seconds  = 86400
   visibility_timeout_seconds = 180
   delay_seconds              = 0
+  kms_master_key_id          = var.kms_master_key_id
 
 }

@@ -6,6 +6,18 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger()
 
+MAX_REGEX_PATTERN_LENGTH = 512
+MAX_REGEX_INPUT_LENGTH = 2048
+NESTED_QUANTIFIER_PATTERN = re.compile(r"\([^)]*[+*][^)]*\)\s*(?:[+*]|\{\d)")
+
+
+def is_safe_regex_pattern(pattern: str) -> bool:
+    return (
+        isinstance(pattern, str)
+        and len(pattern) <= MAX_REGEX_PATTERN_LENGTH
+        and not NESTED_QUANTIFIER_PATTERN.search(pattern)
+    )
+
 class ExceptionHelper:
     """Helper class for managing rule exceptions."""
     
@@ -123,8 +135,11 @@ class ExceptionHelper:
                     
                     # Validate regex pattern before using it
                     try:
+                        if not is_safe_regex_pattern(pattern):
+                            logger.error(f"Unsafe regex pattern in exceptions.json for rule '{rule_title}': pattern is too complex or too long")
+                            continue
                         regex_obj = re.compile(pattern)
-                        is_match = bool(regex_obj.match(actor))
+                        is_match = bool(regex_obj.match(str(actor)[:MAX_REGEX_INPUT_LENGTH]))
                     except re.error as e:
                         # Detailed error handling for regex compilation
                         error_msg = str(e)

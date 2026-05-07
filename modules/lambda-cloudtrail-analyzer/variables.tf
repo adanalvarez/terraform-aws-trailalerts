@@ -3,6 +3,11 @@ variable "environment" {}
 variable "cloudwatch_logs_retention_days" {}
 variable "cloudtrail_bucket_id" {}
 variable "cloudtrail_bucket_arn" {}
+variable "cloudtrail_logs_kms_key_arn" {
+  description = "Optional KMS key ARN used to encrypt CloudTrail log objects. Grants the analyzer Lambda decrypt access when set."
+  type        = string
+  default     = ""
+}
 variable "trailalerts_rules_bucket_arn" {}
 variable "trailalerts_alerts_queue_arn" {}
 variable "trailalerts_alerts_queue_url" {}

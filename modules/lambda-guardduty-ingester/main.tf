@@ -1,3 +1,7 @@
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
+data "aws_region" "current" {}
+
 data "archive_file" "trailalerts_guardduty_ingester_zip" {
   type        = "zip"
   source_dir  = "${local.rel_path_root}/lambda_code/guardduty_ingester"
@@ -41,7 +45,10 @@ resource "aws_iam_role_policy" "trailalerts_guardduty_ingester_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "arn:aws:logs:*:*:*"
+        Resource = [
+          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.function_name}",
+          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.function_name}:*"
+        ]
       },
       {
         Effect = "Allow"
@@ -65,7 +72,7 @@ resource "aws_iam_role_policy" "trailalerts_guardduty_ingester_policy" {
 }
 
 resource "aws_lambda_function" "trailalerts_guardduty_ingester" {
-  function_name = "${var.project}-guardduty-ingester"
+  function_name = local.function_name
   runtime       = "python3.13"
   handler       = "lambda_function.lambda_handler"
   role          = aws_iam_role.trailalerts_guardduty_ingester_role.arn

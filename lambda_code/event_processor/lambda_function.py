@@ -49,12 +49,55 @@ REQUIRED_ENV_VARS = {
 OPTIONAL_ENV_VARS = {
     "DYNAMODB_TABLE_NAME": "DynamoDB table name for storing events (required for correlation/threshold)",
     "VPNAPI_KEY": "API key for VPN service",
+    "VPNAPI_KEY_SECRET_ARN": "Secrets Manager secret containing the VPN API key",
     "SNS_TOPIC_ARN": "SNS topic ARN for notifications",
     "CORRELATION_RULES_BUCKET": "S3 bucket containing correlation and threshold rules",
     "CORRELATION_ENABLED": "Boolean to enable correlation and threshold processing",
     "NOTIFICATION_COOLDOWN_MINUTES": "Global cooldown period in minutes between notifications",
-    "MIN_NOTIFICATION_SEVERITY": "Minimum severity level for sending notifications"
+    "MIN_NOTIFICATION_SEVERITY": "Minimum severity level for sending notifications",
+    "WEBHOOK_URL_SECRET_ARN": "Secrets Manager secret containing the webhook URL",
+    "WEBHOOK_HEADERS_SECRET_ARN": "Secrets Manager secret containing webhook headers JSON"
 }
+
+_secret_cache: Dict[str, str] = {}
+
+
+def _get_secret_value(secret_arn: str) -> str:
+    if not secret_arn:
+        return ""
+    if secret_arn in _secret_cache:
+        return _secret_cache[secret_arn]
+
+    client = boto3.client("secretsmanager")
+    response = client.get_secret_value(SecretId=secret_arn)
+    secret_value = response.get("SecretString", "")
+    _secret_cache[secret_arn] = secret_value
+    return secret_value
+
+
+def _get_config_value(env_name: str, secret_env_name: str) -> str:
+    secret_arn = os.environ.get(secret_env_name, "")
+    if secret_arn:
+        try:
+            return _get_secret_value(secret_arn)
+        except Exception as exc:
+            logger.error(f"Failed to load secret for {env_name}: {str(exc)}")
+    return os.environ.get(env_name, "")
+
+
+def _get_webhook_headers() -> Dict[str, str]:
+    headers_value = _get_config_value("WEBHOOK_HEADERS", "WEBHOOK_HEADERS_SECRET_ARN")
+    if not headers_value:
+        return {}
+    try:
+        parsed = json.loads(headers_value)
+    except json.JSONDecodeError as exc:
+        logger.error(f"Failed to parse webhook headers JSON: {str(exc)}")
+        return {}
+    if not isinstance(parsed, dict):
+        logger.error("Webhook headers secret must contain a JSON object")
+        return {}
+    return {str(key): str(value) for key, value in parsed.items()}
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -153,10 +196,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     "sns_topic": os.environ.get("SNS_TOPIC_ARN"),
                     "source_email": os.environ.get("SOURCE_EMAIL"),
                     "destination_email": os.environ.get("EMAIL_RECIPIENT"),
-                    "api_key": os.environ.get("VPNAPI_KEY"),
+                    "api_key": _get_config_value("VPNAPI_KEY", "VPNAPI_KEY_SECRET_ARN"),
                     "correlation_enabled": os.environ.get("CORRELATION_ENABLED", "false"),
-                    "webhook_url": os.environ.get("WEBHOOK_URL", ""),
-                    "webhook_headers": json.loads(os.environ.get("WEBHOOK_HEADERS", "{}"))
+                    "webhook_url": _get_config_value("WEBHOOK_URL", "WEBHOOK_URL_SECRET_ARN"),
+                    "webhook_headers": _get_webhook_headers()
                 })
             except Exception as e:
                 logger.exception(f"Error processing SQS message{f' {message_id}' if message_id else ''}: {str(e)}")

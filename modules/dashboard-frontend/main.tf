@@ -125,6 +125,7 @@ resource "aws_cloudfront_distribution" "dashboard" {
   default_root_object = "index.html"
   comment             = "${var.project} Dashboard"
   price_class         = "PriceClass_100" # US, Canada, Europe only (cheapest)
+  aliases             = var.cloudfront_aliases
 
   origin {
     domain_name              = aws_s3_bucket.dashboard_site.bucket_regional_domain_name
@@ -210,7 +211,17 @@ resource "aws_cloudfront_distribution" "dashboard" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = var.cloudfront_acm_certificate_arn == "" ? true : null
+    acm_certificate_arn            = var.cloudfront_acm_certificate_arn != "" ? var.cloudfront_acm_certificate_arn : null
+    ssl_support_method             = var.cloudfront_acm_certificate_arn != "" ? "sni-only" : null
+    minimum_protocol_version       = var.cloudfront_acm_certificate_arn != "" ? var.cloudfront_minimum_protocol_version : null
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(var.cloudfront_aliases) == 0 || var.cloudfront_acm_certificate_arn != ""
+      error_message = "cloudfront_acm_certificate_arn is required when cloudfront_aliases are set."
+    }
   }
 
   tags = {

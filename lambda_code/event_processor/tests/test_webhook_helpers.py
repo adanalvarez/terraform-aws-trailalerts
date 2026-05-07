@@ -1,5 +1,6 @@
 """Tests for webhook_helpers module."""
 import json
+import socket
 import unittest
 from unittest.mock import patch, MagicMock
 from urllib.error import HTTPError, URLError
@@ -30,6 +31,12 @@ class TestWebhookSend(unittest.TestCase):
             "author": "SecurityTeam",
             "references": ["https://example.com"],
         }
+        self.getaddrinfo_patcher = patch(
+            "webhook_helpers.socket.getaddrinfo",
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+        )
+        self.mock_getaddrinfo = self.getaddrinfo_patcher.start()
+        self.addCleanup(self.getaddrinfo_patcher.stop)
 
     @patch("webhook_helpers.urlopen")
     def test_successful_post(self, mock_urlopen):
@@ -165,6 +172,39 @@ class TestWebhookSend(unittest.TestCase):
 
         req = mock_urlopen.call_args[0][0]
         self.assertEqual(req.get_header("Content-type"), "application/json")
+
+    @patch("webhook_helpers.urlopen")
+    def test_http_url_is_blocked(self, mock_urlopen):
+        """Plain HTTP webhooks are rejected."""
+        result = webhook_send("http://hooks.example.com/alert", self.headers, self.event, self.rule)
+
+        self.assertFalse(result)
+        mock_urlopen.assert_not_called()
+
+    @patch("webhook_helpers.urlopen")
+    def test_private_resolved_address_is_blocked(self, mock_urlopen):
+        """Webhook hostnames resolving to private addresses are rejected."""
+        self.mock_getaddrinfo.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.10", 443))]
+
+        result = webhook_send(self.url, self.headers, self.event, self.rule)
+
+        self.assertFalse(result)
+        mock_urlopen.assert_not_called()
+
+    @patch("webhook_helpers.urlopen")
+    def test_invalid_header_values_are_skipped(self, mock_urlopen):
+        """Header values containing newlines are not sent."""
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        webhook_send(self.url, {"X-Good": "ok", "X-Bad": "no\r\nInjected: yes"}, self.event, self.rule)
+
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(req.get_header("X-good"), "ok")
+        self.assertIsNone(req.get_header("X-bad"))
 
 
 if __name__ == "__main__":

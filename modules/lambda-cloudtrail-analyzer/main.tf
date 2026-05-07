@@ -30,7 +30,7 @@ resource "aws_iam_role_policy" "trailalerts_cloudtrail_analyzer_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Effect = "Allow"
         Action = [
@@ -58,7 +58,12 @@ resource "aws_iam_role_policy" "trailalerts_cloudtrail_analyzer_policy" {
         Action   = ["sqs:SendMessage"]
         Resource = var.trailalerts_alerts_queue_arn
       }
-    ]
+      ],
+      var.cloudtrail_logs_kms_key_arn != "" ? [{
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:DescribeKey"]
+        Resource = var.cloudtrail_logs_kms_key_arn
+    }] : [])
   })
 }
 

@@ -91,3 +91,18 @@ def test_lambda_handler_marks_invalid_messages_as_failed_for_retry():
     assert response == {
         "batchItemFailures": [{"itemIdentifier": "bad-2"}]
     }
+
+
+def test_get_config_value_reads_secret_once(monkeypatch):
+    module = _load_lambda_module()
+    monkeypatch.setenv("VPNAPI_KEY_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:123456789012:secret:vpn")
+    secrets_client = Mock()
+    secrets_client.get_secret_value.return_value = {"SecretString": "secret-api-key"}
+
+    with patch.object(module.boto3, "client", return_value=secrets_client):
+        assert module._get_config_value("VPNAPI_KEY", "VPNAPI_KEY_SECRET_ARN") == "secret-api-key"
+        assert module._get_config_value("VPNAPI_KEY", "VPNAPI_KEY_SECRET_ARN") == "secret-api-key"
+
+    secrets_client.get_secret_value.assert_called_once_with(
+        SecretId="arn:aws:secretsmanager:us-east-1:123456789012:secret:vpn"
+    )

@@ -1,11 +1,54 @@
 import json
+import ipaddress
 import logging
+import re
+import socket
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 
 logger = logging.getLogger()
+
+HEADER_NAME_PATTERN = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+
+def is_safe_webhook_url(url: str) -> bool:
+    parsed = urlparse(str(url or ""))
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return False
+
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+
+    for address in addresses:
+        host = address[4][0]
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        if not ip.is_global:
+            return False
+
+    return bool(addresses)
+
+
+def safe_webhook_headers(headers: Optional[Dict[str, str]]) -> Dict[str, str]:
+    safe_headers = {}
+    for name, value in (headers or {}).items():
+        header_name = str(name)
+        header_value = str(value)
+        if not HEADER_NAME_PATTERN.fullmatch(header_name):
+            logger.warning("Skipping webhook header with invalid name")
+            continue
+        if "\r" in header_value or "\n" in header_value:
+            logger.warning("Skipping webhook header with invalid value")
+            continue
+        safe_headers[header_name] = header_value
+    return safe_headers
 
 
 def webhook_send(
@@ -29,6 +72,10 @@ def webhook_send(
     Returns:
         True when the webhook accepted the request (2xx), False otherwise.
     """
+    if not is_safe_webhook_url(url):
+        logger.error("Blocked unsafe webhook URL")
+        return False
+
     severity = rule_metadata.get("level", "unknown")
 
     payload: Dict[str, Any] = {
@@ -68,7 +115,7 @@ def webhook_send(
     data = json.dumps(payload, default=str).encode("utf-8")
 
     request_headers = {"Content-Type": "application/json"}
-    request_headers.update(headers or {})
+    request_headers.update(safe_webhook_headers(headers))
 
     req = Request(url, data=data, headers=request_headers, method="POST")
 
