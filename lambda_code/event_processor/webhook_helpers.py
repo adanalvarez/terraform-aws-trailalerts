@@ -73,7 +73,7 @@ def webhook_send(
         True when the webhook accepted the request (2xx), False otherwise.
     """
     if not is_safe_webhook_url(url):
-        logger.error("Blocked unsafe webhook URL host: %s", urlparse(str(url or "")).hostname or "unknown")
+        logger.error("Blocked unsafe webhook URL")
         return False
 
     severity = rule_metadata.get("level", "unknown")
