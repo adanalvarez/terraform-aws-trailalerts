@@ -1,5 +1,6 @@
 resource "aws_sns_topic" "trailalerts_alerts_topic" {
-  name = "${var.project}-cloudtrail-alerts"
+  name              = "${var.project}-cloudtrail-alerts"
+  kms_master_key_id = var.kms_master_key_id
 }
 
 # Email subscription for security notifications

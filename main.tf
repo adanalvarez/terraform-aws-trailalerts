@@ -18,7 +18,8 @@ module "dynamodb" {
 module "sqs" {
   source = "./modules/sqs"
 
-  project = var.project
+  project           = var.project
+  kms_master_key_id = var.sqs_kms_master_key_id
 }
 
 module "s3" {
@@ -36,8 +37,9 @@ module "sns" {
   source = "./modules/sns"
   count  = var.enable_sns ? 1 : 0
 
-  project        = var.project
-  email_endpoint = var.email_endpoint
+  project           = var.project
+  email_endpoint    = var.email_endpoint
+  kms_master_key_id = var.sns_kms_master_key_id
 }
 
 module "lambda_event_processor" {
@@ -49,6 +51,7 @@ module "lambda_event_processor" {
   correlation_enabled             = var.correlation_enabled
   source_email                    = var.source_email
   vpnapi_key                      = var.vpnapi_key
+  vpnapi_key_secret_arn           = var.vpnapi_key_secret_arn
   notification_cooldown_minutes   = var.notification_cooldown_minutes
   min_notification_severity       = var.min_notification_severity
   environment                     = var.environment
@@ -61,7 +64,9 @@ module "lambda_event_processor" {
   trailalerts_detection_layer_arn = module.lambda_layer.trailalerts_detection_layer_arn
   trailalerts_alerts_topic_arn    = var.enable_sns ? module.sns[0].trailalerts_alerts_topic_arn : ""
   webhook_url                     = var.webhook_url
+  webhook_url_secret_arn          = var.webhook_url_secret_arn
   webhook_headers                 = var.webhook_headers
+  webhook_headers_secret_arn      = var.webhook_headers_secret_arn
 }
 
 
@@ -96,6 +101,7 @@ module "lambda_cloudtrail_analyzer" {
   cloudwatch_logs_retention_days  = var.cloudwatch_logs_retention_days
   cloudtrail_bucket_id            = var.create_cloudtrail ? module.cloudtrail[0].trailalerts_cloudtrail_bucket_name : data.aws_s3_bucket.existing_cloudtrail_logs[0].id
   cloudtrail_bucket_arn           = var.create_cloudtrail ? module.cloudtrail[0].trailalerts_cloudtrail_bucket_arn : data.aws_s3_bucket.existing_cloudtrail_logs[0].arn
+  cloudtrail_logs_kms_key_arn     = var.create_cloudtrail ? module.cloudtrail[0].cloudtrail_logs_kms_key_arn : var.existing_cloudtrail_logs_kms_key_arn
   trailalerts_rules_bucket_arn    = module.s3.trailalerts_rules_bucket_arn
   trailalerts_alerts_queue_arn    = module.sqs.trailalerts_alerts_queue_arn
   trailalerts_alerts_queue_url    = module.sqs.trailalerts_alerts_queue_url
@@ -201,4 +207,8 @@ module "dashboard_frontend" {
   cognito_user_pool_id  = module.cognito[0].user_pool_id
   cognito_spa_client_id = module.cognito[0].spa_client_id
   cognito_domain        = module.cognito[0].user_pool_domain
+
+  cloudfront_aliases                  = var.dashboard_cloudfront_aliases
+  cloudfront_acm_certificate_arn      = var.dashboard_cloudfront_acm_certificate_arn
+  cloudfront_minimum_protocol_version = var.dashboard_cloudfront_minimum_protocol_version
 }

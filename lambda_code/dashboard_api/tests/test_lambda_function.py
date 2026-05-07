@@ -309,6 +309,30 @@ detection:
         assert body["evaluatedBlocks"][0]["block"] == "selection"
 
 
+def test_rule_condition_parser_supports_parentheses_and_wildcards():
+    block_results = {
+        "selection_api": True,
+        "selection_console": False,
+        "filter_internal": False,
+    }
+
+    assert dashboard_api._evaluate_condition("selection_api and not filter_internal", block_results) is True
+    assert dashboard_api._evaluate_condition("(selection_console or selection_api) and not filter_internal", block_results) is True
+    assert dashboard_api._evaluate_condition("1 of selection_*", block_results) is True
+    assert dashboard_api._evaluate_condition("all of selection_*", block_results) is False
+    assert dashboard_api._evaluate_condition("__import__('os').system('id')", block_results) is False
+
+
+def test_rule_key_normalization_rejects_traversal():
+    assert dashboard_api._normalize_rule_key("aws/iam/create-user") == "aws/iam/create-user.yaml"
+
+    with pytest.raises(ValueError):
+        dashboard_api._normalize_rule_key("../secrets")
+
+    with pytest.raises(ValueError):
+        dashboard_api._normalize_rule_key("sigma_rules/%2e%2e/secrets")
+
+
 def test_validate_postprocessing_returns_inline_json_error(decode_body):
     response = dashboard_api.validate_postprocessing('{"type": "threshold",')
     body = decode_body(response)
@@ -363,6 +387,21 @@ def test_validate_exceptions_rejects_bad_regex(decode_body):
     assert body["valid"] is False
     assert body["metadata"]["actorCount"] == 1
     assert "Invalid regex" in body["errors"][0]["message"]
+
+
+def test_validate_exceptions_rejects_unsafe_regex(decode_body):
+    payload = {
+        "Suspicious Console Login": {
+            "excludedActorsRegex": ["(a+)+b"],
+        }
+    }
+
+    response = dashboard_api.validate_exceptions(json.dumps(payload))
+    body = decode_body(response)
+
+    assert response["statusCode"] == 200
+    assert body["valid"] is False
+    assert "Unsafe regex" in body["errors"][0]["message"]
 
 
 def test_list_rules_includes_disabled_prefix_state(monkeypatch, decode_body):

@@ -1,10 +1,13 @@
 import html
 from utils import get_nested_value
 import logging
+import re
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timedelta
 from urllib.parse import quote
 import json
+
+AWS_REGION_PATTERN = re.compile(r"^[a-z]{2}(?:-[a-z0-9]+)+-\d+$")
 
 # Constants for HTML templates
 HTML_TEMPLATES = {
@@ -67,6 +70,14 @@ def format_iso_time(dt: datetime) -> str:
     return dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
 
+def normalize_aws_region(region: Any) -> str:
+    region_value = str(region or "us-east-1").strip().lower()
+    if AWS_REGION_PATTERN.fullmatch(region_value):
+        return region_value
+    logging.warning(f"Invalid AWS region in CloudTrail event: {region_value}")
+    return "us-east-1"
+
+
 def generate_cloudtrail_link(event: Dict[str, Any], window_minutes: int = 20) -> str:
     """
     Generates a CloudTrail console link for the event with a time window.
@@ -107,7 +118,7 @@ def generate_cloudtrail_link(event: Dict[str, Any], window_minutes: int = 20) ->
         
         # Get event name and region
         event_name = event.get('eventName', '')
-        region = event.get('awsRegion', 'us-east-1')  # Default to us-east-1 if not specified
+        region = normalize_aws_region(event.get('awsRegion', 'us-east-1'))
         
         # Build URL parameters
         url_params = [

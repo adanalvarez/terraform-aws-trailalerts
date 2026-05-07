@@ -23,13 +23,16 @@ resource "aws_lambda_function" "trailalerts_event_processor" {
       SNS_TOPIC_ARN                 = var.trailalerts_alerts_topic_arn
       EMAIL_RECIPIENT               = var.email_endpoint
       SOURCE_EMAIL                  = var.source_email
-      VPNAPI_KEY                    = var.vpnapi_key
+      VPNAPI_KEY                    = var.vpnapi_key_secret_arn == "" ? var.vpnapi_key : ""
+      VPNAPI_KEY_SECRET_ARN         = var.vpnapi_key_secret_arn
       CORRELATION_ENABLED           = tostring(var.correlation_enabled)
       CORRELATION_RULES_BUCKET      = var.trailalerts_rules_bucket
       NOTIFICATION_COOLDOWN_MINUTES = tostring(var.notification_cooldown_minutes)
       MIN_NOTIFICATION_SEVERITY     = var.min_notification_severity
-      WEBHOOK_URL                   = var.webhook_url
-      WEBHOOK_HEADERS               = jsonencode(var.webhook_headers)
+      WEBHOOK_URL                   = var.webhook_url_secret_arn == "" ? var.webhook_url : ""
+      WEBHOOK_URL_SECRET_ARN        = var.webhook_url_secret_arn
+      WEBHOOK_HEADERS               = var.webhook_headers_secret_arn == "" ? jsonencode(var.webhook_headers) : "{}"
+      WEBHOOK_HEADERS_SECRET_ARN    = var.webhook_headers_secret_arn
     }
   }
 
@@ -100,6 +103,11 @@ resource "aws_iam_role_policy" "trailalerts_event_processor_policy" {
           var.security_events_table_arn,
           "${var.security_events_table_arn}/index/*"
         ]
+      }] : [],
+      length(local.event_processor_secret_arns) > 0 ? [{
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = local.event_processor_secret_arns
     }] : [])
   })
 }
@@ -114,22 +122,6 @@ resource "aws_lambda_event_source_mapping" "sqs_to_event_processor" {
 resource "aws_cloudwatch_log_group" "trailalerts_event_processor_log_group" {
   name              = "/aws/lambda/${aws_lambda_function.trailalerts_event_processor.function_name}"
   retention_in_days = var.cloudwatch_logs_retention_days
-}
-
-resource "aws_iam_role_policy" "trailalerts_event_processor_sqs_policy" {
-  name = "${var.project}-event-processor-sqs-policy"
-  role = aws_iam_role.trailalerts_event_processor_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
-        Resource = var.trailalerts_alerts_queue_arn
-      }
-    ]
-  })
 }
 
 # IAM policy document for Lambda roles to publish to SNS

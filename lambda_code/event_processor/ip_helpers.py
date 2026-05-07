@@ -1,5 +1,6 @@
 from utils import get_nested_value
 import html
+import ipaddress
 import logging
 import requests
 from typing import Dict, Any, Optional, Tuple
@@ -165,12 +166,22 @@ def get_ip_information(ip: str, api_key: str) -> Optional[Dict[str, Any]]:
     """
     if not ip or not api_key:
         return None
-        
-    url = f"https://vpnapi.io/api/{ip}?key={api_key}"
+
     try:
-        response = requests.get(url)
+        ip_obj = ipaddress.ip_address(str(ip).strip())
+    except ValueError:
+        logging.info(f"Skipping VPN lookup for non-IP source address: {ip}")
+        return None
+
+    if not ip_obj.is_global:
+        logging.info(f"Skipping VPN lookup for non-public IP address: {ip}")
+        return {"message": f"{ip_obj.compressed} is a private IP address"}
+
+    url = f"https://vpnapi.io/api/{ip_obj.compressed}?key={api_key}"
+    try:
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
-        logging.info(f"Retrieved IP information for {ip}")
+        logging.info(f"Retrieved IP information for {ip_obj.compressed}")
         return response.json()
     except requests.RequestException as e:
         logging.error(f"Failed to retrieve IP information: {str(e)}")

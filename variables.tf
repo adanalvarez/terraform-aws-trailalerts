@@ -26,6 +26,12 @@ variable "existing_cloudtrail_bucket_name" {
   default     = ""
 }
 
+variable "existing_cloudtrail_logs_kms_key_arn" {
+  description = "Optional KMS key ARN for an existing CloudTrail bucket encrypted with SSE-KMS. Used to grant the analyzer Lambda decrypt access when create_cloudtrail is false."
+  type        = string
+  default     = ""
+}
+
 variable "cloudtrail_log_filter_prefix" {
   description = "Optional S3 object key prefix used to limit CloudTrail Analyzer Lambda invocations. Leave null to process CloudTrail JSON gzip objects anywhere in the bucket."
   type        = string
@@ -114,6 +120,18 @@ variable "enable_sns" {
   default     = true
 }
 
+variable "sns_kms_master_key_id" {
+  description = "KMS key ID or alias used to encrypt the SNS alerts topic. Defaults to the AWS-managed SNS key."
+  type        = string
+  default     = "alias/aws/sns"
+}
+
+variable "sqs_kms_master_key_id" {
+  description = "KMS key ID or alias used to encrypt the SQS alerts queue. Defaults to the AWS-managed SQS key."
+  type        = string
+  default     = "alias/aws/sqs"
+}
+
 variable "ses_identities" {
   description = "List of SES identities to verify and use for email notifications"
   type        = list(string)
@@ -128,19 +146,39 @@ variable "vpnapi_key" {
   description = "API key for VPN service integration"
   type        = string
   default     = ""
+  sensitive   = true
+}
+
+variable "vpnapi_key_secret_arn" {
+  description = "Optional Secrets Manager secret ARN containing the VPN API key. Prefer this over vpnapi_key for production deployments."
+  type        = string
+  default     = ""
 }
 
 variable "webhook_url" {
-  description = "Webhook URL to POST alert notifications to. When set, alerts are sent as JSON payloads to this endpoint. Works alongside or instead of SES/SNS."
+  description = "Webhook URL to POST alert notifications to. Prefer webhook_url_secret_arn when the URL contains embedded credentials or tokens."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "webhook_url_secret_arn" {
+  description = "Optional Secrets Manager secret ARN containing the webhook URL. Prefer this over webhook_url for production deployments."
   type        = string
   default     = ""
 }
 
 variable "webhook_headers" {
-  description = "Optional HTTP headers to include on webhook requests (e.g. Authorization tokens). Values are stored as a Lambda environment variable."
+  description = "Optional HTTP headers to include on webhook requests. Prefer webhook_headers_secret_arn for Authorization tokens or other sensitive values."
   type        = map(string)
   default     = {}
   sensitive   = true
+}
+
+variable "webhook_headers_secret_arn" {
+  description = "Optional Secrets Manager secret ARN containing webhook headers as a JSON object. Prefer this over webhook_headers for production deployments."
+  type        = string
+  default     = ""
 }
 
 variable "correlation_enabled" {
@@ -209,4 +247,27 @@ variable "dashboard_api_cors_allowed_origins" {
   description = "Optional CORS origins for direct browser access to the dashboard API. Leave empty when using the CloudFront dashboard URL."
   type        = list(string)
   default     = []
+}
+
+variable "dashboard_cloudfront_aliases" {
+  description = "Optional custom domain aliases for the dashboard CloudFront distribution. Requires dashboard_cloudfront_acm_certificate_arn."
+  type        = list(string)
+  default     = []
+}
+
+variable "dashboard_cloudfront_acm_certificate_arn" {
+  description = "Optional ACM certificate ARN in us-east-1 for dashboard custom domains. Enables TLSv1.2_2021 by default."
+  type        = string
+  default     = ""
+}
+
+variable "dashboard_cloudfront_minimum_protocol_version" {
+  description = "Minimum TLS security policy for dashboard CloudFront custom certificates. Used only when dashboard_cloudfront_acm_certificate_arn is set."
+  type        = string
+  default     = "TLSv1.2_2021"
+
+  validation {
+    condition     = contains(["TLSv1.2_2018", "TLSv1.2_2019", "TLSv1.2_2021"], var.dashboard_cloudfront_minimum_protocol_version)
+    error_message = "dashboard_cloudfront_minimum_protocol_version must be one of TLSv1.2_2018, TLSv1.2_2019, or TLSv1.2_2021."
+  }
 }

@@ -5,6 +5,25 @@ from typing import Dict, Any, List, Union, Tuple, Optional
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+MAX_REGEX_PATTERN_LENGTH = 512
+MAX_REGEX_INPUT_LENGTH = 2048
+NESTED_QUANTIFIER_PATTERN = re.compile(r"\([^)]*[+*][^)]*\)\s*(?:[+*]|\{\d)")
+
+
+def is_safe_regex_pattern(pattern: str) -> bool:
+    return (
+        isinstance(pattern, str)
+        and len(pattern) <= MAX_REGEX_PATTERN_LENGTH
+        and not NESTED_QUANTIFIER_PATTERN.search(pattern)
+    )
+
+
+def safe_regex_search(pattern: str, value: Any) -> bool:
+    if value is None or not is_safe_regex_pattern(pattern):
+        return False
+    return re.search(pattern, str(value)[:MAX_REGEX_INPUT_LENGTH]) is not None
+
+
 def matches_sigma_rule(cloudtrail_record: Dict[str, Any], sigma_rule: Dict[str, Any]) -> bool:
     """
     Checks if a CloudTrail record matches a Sigma rule's detection criteria.
@@ -101,9 +120,7 @@ def evaluate_block(cloudtrail_record: Dict[str, Any], criteria: Dict[str, Any]) 
                     record_val = str(record_val)
                 
                 try:
-                    # Perform regex match
-                    pattern = re.compile(expected_value)
-                    if not pattern.search(record_val):
+                    if not safe_regex_search(str(expected_value), record_val):
                         return False
                 except re.error as e:
                     logger.error(f"Invalid regex pattern {expected_value}: {str(e)}")

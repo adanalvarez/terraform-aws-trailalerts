@@ -31,6 +31,10 @@ RULE_PREFIXES = (RULES_PREFIX, DISABLED_RULES_PREFIX)
 POSTPROCESSING_PREFIX = "postprocessing_rules/"
 EXCEPTIONS_KEY = "exceptions.json"
 DYNAMODB_TABLE_NAME = os.environ.get("DYNAMODB_TABLE_NAME", "")
+RULE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*\.(?:ya?ml)$")
+MAX_REGEX_PATTERN_LENGTH = 512
+MAX_REGEX_INPUT_LENGTH = 2048
+NESTED_QUANTIFIER_PATTERN = re.compile(r"\([^)]*[+*][^)]*\)\s*(?:[+*]|\{\d)")
 
 # Lazy-init DynamoDB table reference
 _table = None
@@ -69,13 +73,19 @@ def _response(status_code: int, body: dict) -> dict:
 
 def _normalize_rule_key(key: str) -> str:
     """Return the dashboard-facing rule filename without any S3 prefix."""
-    key = key.strip("/")
+    key = unquote_plus(str(key or "")).strip("/")
+    if not key or "\\" in key or ".." in key:
+        raise ValueError("Invalid rule key")
     for prefix in RULE_PREFIXES:
         if key.startswith(prefix):
             key = key.removeprefix(prefix)
             break
+    if not key or any(part in ("", ".", "..") for part in key.split("/")):
+        raise ValueError("Invalid rule key")
     if not key.endswith((".yaml", ".yml")):
         key += ".yaml"
+    if not RULE_KEY_PATTERN.fullmatch(key):
+        raise ValueError("Invalid rule key")
     return key
 
 
@@ -101,6 +111,14 @@ def _enabled_param(value, default: bool | None = True) -> bool | None:
     if normalized in ("0", "false", "no", "off", "disabled"):
         return False
     return default
+
+
+def _is_safe_regex_pattern(pattern: str) -> bool:
+    return (
+        isinstance(pattern, str)
+        and len(pattern) <= MAX_REGEX_PATTERN_LENGTH
+        and not NESTED_QUANTIFIER_PATTERN.search(pattern)
+    )
 
 
 def _find_rule_location(key: str, preferred_enabled: bool | None = None) -> tuple[str | None, bool | None, dict | None]:
@@ -331,7 +349,12 @@ def _evaluate_sigma_block(record: dict, criteria: dict) -> tuple[bool, list[dict
             result = isinstance(actual, str) and str(actual).endswith(str(expected))
         elif operator == "re":
             try:
-                result = actual is not None and re.search(str(expected), str(actual)) is not None
+                pattern = str(expected)
+                result = (
+                    actual is not None
+                    and _is_safe_regex_pattern(pattern)
+                    and re.search(pattern, str(actual)[:MAX_REGEX_INPUT_LENGTH]) is not None
+                )
             except re.error:
                 result = False
         else:
@@ -349,23 +372,112 @@ def _evaluate_condition(condition: str, block_results: dict[str, bool]) -> bool:
     if condition in block_results:
         return block_results[condition]
 
-    one_of = re.fullmatch(r"1\s+of\s+([A-Za-z_][A-Za-z0-9_-]*)\*", condition)
-    if one_of:
-        prefix = one_of.group(1)
-        return any(value for name, value in block_results.items() if name.startswith(prefix))
+    tokens = _tokenize_condition(condition)
+    if not tokens:
+        return False
 
-    all_of = re.fullmatch(r"all\s+of\s+([A-Za-z_][A-Za-z0-9_-]*)\*", condition)
-    if all_of:
-        prefix = all_of.group(1)
-        matches = [value for name, value in block_results.items() if name.startswith(prefix)]
-        return bool(matches) and all(matches)
-
-    expression = condition
-    for name in sorted(block_results.keys(), key=len, reverse=True):
-        expression = re.sub(rf"\b{re.escape(name)}\b", str(bool(block_results[name])), expression)
-    if re.fullmatch(r"[\sTrueFalsandornt()]+", expression):
-        return bool(eval(expression, {"__builtins__": {}}, {}))
+    try:
+        parser = _ConditionParser(tokens, block_results)
+        result = parser.parse()
+        return result if parser.finished else False
+    except ValueError:
+        return False
     return False
+
+
+def _tokenize_condition(condition: str) -> list[str]:
+    pattern = re.compile(r"\s*(\(|\)|\d+|[A-Za-z_][A-Za-z0-9_-]*\*?)")
+    tokens = []
+    pos = 0
+    while pos < len(condition):
+        if condition[pos:].strip() == "":
+            break
+        match = pattern.match(condition, pos)
+        if not match:
+            return []
+        tokens.append(match.group(1))
+        pos = match.end()
+    return tokens
+
+
+class _ConditionParser:
+    def __init__(self, tokens: list[str], block_results: dict[str, bool]):
+        self.tokens = tokens
+        self.block_results = block_results
+        self.index = 0
+
+    @property
+    def finished(self) -> bool:
+        return self.index == len(self.tokens)
+
+    def parse(self) -> bool:
+        return self._parse_or()
+
+    def _peek(self) -> str | None:
+        return self.tokens[self.index] if self.index < len(self.tokens) else None
+
+    def _consume(self) -> str:
+        token = self._peek()
+        if token is None:
+            raise ValueError("Unexpected end of condition")
+        self.index += 1
+        return token
+
+    def _parse_or(self) -> bool:
+        value = self._parse_and()
+        while (self._peek() or "").lower() == "or":
+            self._consume()
+            rhs = self._parse_and()
+            value = value or rhs
+        return value
+
+    def _parse_and(self) -> bool:
+        value = self._parse_not()
+        while (self._peek() or "").lower() == "and":
+            self._consume()
+            rhs = self._parse_not()
+            value = value and rhs
+        return value
+
+    def _parse_not(self) -> bool:
+        if (self._peek() or "").lower() == "not":
+            self._consume()
+            return not self._parse_not()
+        return self._parse_primary()
+
+    def _parse_primary(self) -> bool:
+        token = self._consume()
+        token_lower = token.lower()
+
+        if token == "(":
+            value = self._parse_or()
+            if self._consume() != ")":
+                raise ValueError("Unclosed condition group")
+            return value
+
+        if token == ")" or token_lower in ("and", "or", "not", "of"):
+            raise ValueError("Unexpected condition token")
+
+        if token_lower == "all" and (self._peek() or "").lower() == "of":
+            self._consume()
+            return self._evaluate_count(self._consume(), all_required=True)
+
+        if token_lower.isdigit() and (self._peek() or "").lower() == "of":
+            self._consume()
+            return self._evaluate_count(self._consume(), minimum=int(token_lower))
+
+        return bool(self.block_results.get(token, False))
+
+    def _evaluate_count(self, pattern: str, minimum: int = 1, all_required: bool = False) -> bool:
+        if pattern.endswith("*"):
+            prefix = pattern[:-1]
+            matches = [value for name, value in self.block_results.items() if name.startswith(prefix)]
+        else:
+            matches = [self.block_results.get(pattern, False)] if pattern in self.block_results else []
+
+        if all_required:
+            return bool(matches) and all(matches)
+        return sum(1 for value in matches if value) >= minimum
 
 
 def _test_sigma_rule(rule: dict, sample_event: dict) -> dict:
@@ -1336,6 +1448,12 @@ def _analyze_exceptions(content: str) -> dict:
                 for index, pattern in enumerate(values):
                     if not isinstance(pattern, str):
                         continue
+                    if not _is_safe_regex_pattern(pattern):
+                        errors.append({
+                            "message": f"Unsafe regex in '{rule_title}'.excludedActorsRegex[{index}]: pattern is too complex or too long",
+                            "line": field_line,
+                        })
+                        continue
                     try:
                         re.compile(pattern)
                     except re.error as exc:
@@ -1523,6 +1641,8 @@ def lambda_handler(event, context):
 
         return _response(404, {"error": "Not found"})
 
+    except ValueError as e:
+        return _response(400, {"error": str(e)})
     except Exception as e:
         logger.error(f"Unhandled error: {e}", exc_info=True)
         return _response(500, {"error": "Internal server error"})

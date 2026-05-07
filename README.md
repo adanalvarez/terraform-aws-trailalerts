@@ -655,6 +655,10 @@ If you already have a CloudTrail bucket, set `create_cloudtrail = false` and pro
 See the `examples/` folder for a runnable example. Required Terraform variables are `aws_region` and `email_endpoint`; the current Event Processor runtime also expects `source_email` to be non-empty. Common outputs include CloudWatch Log Group ARNs: `trailalerts_cloudtrail_analyzer_log_group_arn`, `trailalerts_guardduty_ingester_log_group_arn` and `trailalerts_event_processor_log_group_arn`.
 
 Notes:
+- Managed CloudTrail logs are encrypted with a dedicated KMS key. If you use an existing SSE-KMS encrypted CloudTrail bucket, set `existing_cloudtrail_logs_kms_key_arn` so the analyzer Lambda can decrypt log objects.
+- The alerts SQS queue and SNS topic are encrypted by default with AWS-managed keys. Set `sqs_kms_master_key_id` or `sns_kms_master_key_id` when you want customer-managed keys.
+- For production secrets, prefer `vpnapi_key_secret_arn`, `webhook_url_secret_arn` and `webhook_headers_secret_arn` over plaintext Terraform variables. The Event Processor reads these values from Secrets Manager at runtime and still keeps the original variables as backwards-compatible fallbacks.
+- CloudFront's default certificate does not support configuring the modern TLS security policy directly. For dashboard custom domains and TLSv1.2_2021, provide `dashboard_cloudfront_acm_certificate_arn` and `dashboard_cloudfront_aliases`.
 - The analyzer Lambda S3 trigger only invokes on `.json.gz` objects. For existing buckets with a known CloudTrail path prefix, set `cloudtrail_log_filter_prefix` to reduce unnecessary Lambda invocations further.
 - The GuardDuty ingester Lambda S3 trigger only invokes on `.jsonl.gz` objects by default. For existing GuardDuty export buckets with a known prefix, set `guardduty_findings_prefix` to reduce unnecessary Lambda invocations.
 - For centralized multi-region GuardDuty, enable GuardDuty detectors in each monitored region, then set `enable_guardduty_export_destinations = true` and list those regions in `guardduty_export_regions`.
@@ -676,13 +680,17 @@ Notes:
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.43.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.43.0 |
+| <a name="provider_null"></a> [null](#provider\_null) | n/a |
 
 ## Modules
 
 | Name | Source | Version |
 |------|--------|---------|
 | <a name="module_cloudtrail"></a> [cloudtrail](#module\_cloudtrail) | ./modules/cloudtrail | n/a |
+| <a name="module_cognito"></a> [cognito](#module\_cognito) | ./modules/cognito | n/a |
+| <a name="module_dashboard_api"></a> [dashboard\_api](#module\_dashboard\_api) | ./modules/dashboard-api | n/a |
+| <a name="module_dashboard_frontend"></a> [dashboard\_frontend](#module\_dashboard\_frontend) | ./modules/dashboard-frontend | n/a |
 | <a name="module_dynamodb"></a> [dynamodb](#module\_dynamodb) | ./modules/dynamodb | n/a |
 | <a name="module_guardduty_export_destinations"></a> [guardduty\_export\_destinations](#module\_guardduty\_export\_destinations) | ./modules/guardduty-export-destinations | n/a |
 | <a name="module_lambda_cloudtrail_analyzer"></a> [lambda\_cloudtrail\_analyzer](#module\_lambda\_cloudtrail\_analyzer) | ./modules/lambda-cloudtrail-analyzer | n/a |
@@ -692,14 +700,12 @@ Notes:
 | <a name="module_s3"></a> [s3](#module\_s3) | ./modules/s3 | n/a |
 | <a name="module_sns"></a> [sns](#module\_sns) | ./modules/sns | n/a |
 | <a name="module_sqs"></a> [sqs](#module\_sqs) | ./modules/sqs | n/a |
-| <a name="module_cognito"></a> [cognito](#module\_cognito) | ./modules/cognito | n/a |
-| <a name="module_dashboard_api"></a> [dashboard\_api](#module\_dashboard\_api) | ./modules/dashboard-api | n/a |
-| <a name="module_dashboard_frontend"></a> [dashboard\_frontend](#module\_dashboard\_frontend) | ./modules/dashboard-frontend | n/a |
 
 ## Resources
 
 | Name | Type |
 |------|------|
+| [null_resource.update_cognito_callbacks](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
 | [aws_s3_bucket.existing_cloudtrail_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/s3_bucket) | data source |
 | [aws_s3_bucket.existing_guardduty_findings](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/s3_bucket) | data source |
 
@@ -708,50 +714,59 @@ Notes:
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_aws_region"></a> [aws\_region](#input\_aws\_region) | The AWS region where all resources will be deployed | `string` | n/a | yes |
-| <a name="input_cloudwatch_logs_retention_days"></a> [cloudwatch\_logs\_retention\_days](#input\_cloudwatch\_logs\_retention\_days) | Number of days to retain CloudWatch logs before automatic deletion | `number` | `30` | no |
 | <a name="input_cloudtrail_log_filter_prefix"></a> [cloudtrail\_log\_filter\_prefix](#input\_cloudtrail\_log\_filter\_prefix) | Optional S3 object key prefix used to limit CloudTrail Analyzer Lambda invocations. Leave null to process CloudTrail JSON gzip objects anywhere in the bucket. | `string` | `null` | no |
+| <a name="input_cloudwatch_logs_retention_days"></a> [cloudwatch\_logs\_retention\_days](#input\_cloudwatch\_logs\_retention\_days) | Number of days to retain CloudWatch logs before automatic deletion | `number` | `30` | no |
 | <a name="input_correlation_enabled"></a> [correlation\_enabled](#input\_correlation\_enabled) | Whether to enable event correlation analysis - creates a DynamoDB table for storing and analyzing security events | `bool` | `false` | no |
 | <a name="input_create_cloudtrail"></a> [create\_cloudtrail](#input\_create\_cloudtrail) | Whether to create CloudTrail and S3 bucket or use existing | `bool` | `true` | no |
+| <a name="input_dashboard_admin_emails"></a> [dashboard\_admin\_emails](#input\_dashboard\_admin\_emails) | List of email addresses that will be created as admin users in the dashboard Cognito User Pool. Only used when enable\_dashboard is true. | `list(string)` | `[]` | no |
+| <a name="input_dashboard_api_cors_allowed_origins"></a> [dashboard\_api\_cors\_allowed\_origins](#input\_dashboard\_api\_cors\_allowed\_origins) | Optional CORS origins for direct browser access to the dashboard API. Leave empty when using the CloudFront dashboard URL. | `list(string)` | `[]` | no |
+| <a name="input_dashboard_cloudfront_acm_certificate_arn"></a> [dashboard\_cloudfront\_acm\_certificate\_arn](#input\_dashboard\_cloudfront\_acm\_certificate\_arn) | Optional ACM certificate ARN in us-east-1 for dashboard custom domains. Enables TLSv1.2\_2021 by default. | `string` | `""` | no |
+| <a name="input_dashboard_cloudfront_aliases"></a> [dashboard\_cloudfront\_aliases](#input\_dashboard\_cloudfront\_aliases) | Optional custom domain aliases for the dashboard CloudFront distribution. Requires dashboard\_cloudfront\_acm\_certificate\_arn. | `list(string)` | `[]` | no |
+| <a name="input_dashboard_cloudfront_minimum_protocol_version"></a> [dashboard\_cloudfront\_minimum\_protocol\_version](#input\_dashboard\_cloudfront\_minimum\_protocol\_version) | Minimum TLS security policy for dashboard CloudFront custom certificates. Used only when dashboard\_cloudfront\_acm\_certificate\_arn is set. | `string` | `"TLSv1.2_2021"` | no |
 | <a name="input_email_endpoint"></a> [email\_endpoint](#input\_email\_endpoint) | Email address that will receive security notifications and alerts | `string` | n/a | yes |
+| <a name="input_enable_dashboard"></a> [enable\_dashboard](#input\_enable\_dashboard) | Whether to create the web dashboard for managing rules and viewing alert history. Creates Cognito, API Gateway, Lambda, S3, and CloudFront resources. | `bool` | `false` | no |
+| <a name="input_enable_guardduty_export_destinations"></a> [enable\_guardduty\_export\_destinations](#input\_enable\_guardduty\_export\_destinations) | Whether TrailAlerts should manage GuardDuty publishing destinations in multiple regions so findings are exported to the central GuardDuty findings bucket. GuardDuty detectors must already exist in guardduty\_export\_regions. | `bool` | `false` | no |
+| <a name="input_enable_guardduty_ingestion"></a> [enable\_guardduty\_ingestion](#input\_enable\_guardduty\_ingestion) | Whether to ingest GuardDuty S3 export findings into the TrailAlerts notification and dashboard pipeline. Requires an existing GuardDuty findings export bucket. | `bool` | `false` | no |
 | <a name="input_enable_sns"></a> [enable\_sns](#input\_enable\_sns) | Whether to create SNS topic and subscription | `bool` | `true` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment identifier (e.g., dev, prod, staging) for resource tagging and isolation | `string` | `"dev"` | no |
 | <a name="input_existing_cloudtrail_bucket_name"></a> [existing\_cloudtrail\_bucket\_name](#input\_existing\_cloudtrail\_bucket\_name) | Name of existing CloudTrail bucket when create\_cloudtrail is false | `string` | `""` | no |
-| <a name="input_enable_guardduty_ingestion"></a> [enable\_guardduty\_ingestion](#input\_enable\_guardduty\_ingestion) | Whether to ingest GuardDuty S3 export findings into the TrailAlerts notification and dashboard pipeline | `bool` | `false` | no |
-| <a name="input_enable_guardduty_export_destinations"></a> [enable\_guardduty\_export\_destinations](#input\_enable\_guardduty\_export\_destinations) | Whether TrailAlerts should manage GuardDuty publishing destinations in multiple regions so findings are exported to the central GuardDuty findings bucket | `bool` | `false` | no |
-| <a name="input_existing_guardduty_findings_bucket_name"></a> [existing\_guardduty\_findings\_bucket\_name](#input\_existing\_guardduty\_findings\_bucket\_name) | Name of the existing S3 bucket where GuardDuty exports JSONL findings when enable\_guardduty\_ingestion is true | `string` | `""` | no |
-| <a name="input_guardduty_export_regions"></a> [guardduty\_export\_regions](#input\_guardduty\_export\_regions) | AWS regions where existing GuardDuty detectors should export findings to the central TrailAlerts findings bucket | `list(string)` | `[]` | no |
-| <a name="input_guardduty_export_destination_prefix"></a> [guardduty\_export\_destination\_prefix](#input\_guardduty\_export\_destination\_prefix) | Optional prefix appended to the GuardDuty export bucket ARN for managed publishing destinations | `string` | `null` | no |
-| <a name="input_guardduty_findings_prefix"></a> [guardduty\_findings\_prefix](#input\_guardduty\_findings\_prefix) | Optional S3 object key prefix used to limit GuardDuty ingester Lambda invocations | `string` | `null` | no |
-| <a name="input_guardduty_findings_filter_suffix"></a> [guardduty\_findings\_filter\_suffix](#input\_guardduty\_findings\_filter\_suffix) | S3 object key suffix used to limit GuardDuty ingester Lambda invocations | `string` | `".jsonl.gz"` | no |
-| <a name="input_guardduty_min_severity"></a> [guardduty\_min\_severity](#input\_guardduty\_min\_severity) | Minimum numeric GuardDuty severity to ingest | `number` | `0` | no |
-| <a name="input_guardduty_include_archived"></a> [guardduty\_include\_archived](#input\_guardduty\_include\_archived) | Whether archived GuardDuty findings should be ingested | `bool` | `false` | no |
-| <a name="input_guardduty_findings_kms_key_arn"></a> [guardduty\_findings\_kms\_key\_arn](#input\_guardduty\_findings\_kms\_key\_arn) | Optional KMS key ARN used to decrypt GuardDuty exported findings | `string` | `""` | no |
-| <a name="input_guardduty_manage_bucket_notification"></a> [guardduty\_manage\_bucket\_notification](#input\_guardduty\_manage\_bucket\_notification) | Whether TrailAlerts should manage the S3 bucket notification for the GuardDuty findings bucket | `bool` | `true` | no |
+| <a name="input_existing_cloudtrail_logs_kms_key_arn"></a> [existing\_cloudtrail\_logs\_kms\_key\_arn](#input\_existing\_cloudtrail\_logs\_kms\_key\_arn) | Optional KMS key ARN for an existing CloudTrail bucket encrypted with SSE-KMS. Used to grant the analyzer Lambda decrypt access when create\_cloudtrail is false. | `string` | `""` | no |
+| <a name="input_existing_guardduty_findings_bucket_name"></a> [existing\_guardduty\_findings\_bucket\_name](#input\_existing\_guardduty\_findings\_bucket\_name) | Name of the existing S3 bucket where GuardDuty exports JSONL findings when enable\_guardduty\_ingestion is true. | `string` | `""` | no |
+| <a name="input_guardduty_export_destination_prefix"></a> [guardduty\_export\_destination\_prefix](#input\_guardduty\_export\_destination\_prefix) | Optional prefix appended to the GuardDuty export bucket ARN for managed publishing destinations. Leave null to use GuardDuty's AWSLogs/<account-id>/GuardDuty/<region>/ default layout. | `string` | `null` | no |
+| <a name="input_guardduty_export_regions"></a> [guardduty\_export\_regions](#input\_guardduty\_export\_regions) | AWS regions where existing GuardDuty detectors should export findings to the central TrailAlerts findings bucket when enable\_guardduty\_export\_destinations is true. | `list(string)` | `[]` | no |
+| <a name="input_guardduty_findings_filter_suffix"></a> [guardduty\_findings\_filter\_suffix](#input\_guardduty\_findings\_filter\_suffix) | S3 object key suffix used to limit GuardDuty ingester Lambda invocations. GuardDuty S3 exports are gzip-compressed JSON Lines by default. | `string` | `".jsonl.gz"` | no |
+| <a name="input_guardduty_findings_kms_key_arn"></a> [guardduty\_findings\_kms\_key\_arn](#input\_guardduty\_findings\_kms\_key\_arn) | Optional KMS key ARN used to encrypt GuardDuty exported findings and grant the ingester Lambda kms:Decrypt for exported objects. Required when enable\_guardduty\_export\_destinations is true. | `string` | `""` | no |
+| <a name="input_guardduty_findings_prefix"></a> [guardduty\_findings\_prefix](#input\_guardduty\_findings\_prefix) | Optional S3 object key prefix used to limit GuardDuty ingester Lambda invocations. GuardDuty defaults to AWSLogs/<account-id>/GuardDuty/<region>/ when no destination prefix is set. | `string` | `null` | no |
+| <a name="input_guardduty_include_archived"></a> [guardduty\_include\_archived](#input\_guardduty\_include\_archived) | Whether archived GuardDuty findings should be ingested. Leave false to process only active findings. | `bool` | `false` | no |
+| <a name="input_guardduty_manage_bucket_notification"></a> [guardduty\_manage\_bucket\_notification](#input\_guardduty\_manage\_bucket\_notification) | Whether TrailAlerts should manage the S3 bucket notification for the GuardDuty findings bucket. Disable when another Terraform resource already owns notifications for that bucket. | `bool` | `true` | no |
+| <a name="input_guardduty_min_severity"></a> [guardduty\_min\_severity](#input\_guardduty\_min\_severity) | Minimum numeric GuardDuty severity to ingest. Defaults to 4 (medium and higher). Set 0 to ingest all findings, or 7 for high findings only. | `number` | `4` | no |
 | <a name="input_include_global_service_events"></a> [include\_global\_service\_events](#input\_include\_global\_service\_events) | Whether to include global service events in CloudTrail logs | `bool` | `true` | no |
 | <a name="input_is_multi_region_trail"></a> [is\_multi\_region\_trail](#input\_is\_multi\_region\_trail) | Whether the CloudTrail should log events for all regions | `bool` | `true` | no |
 | <a name="input_min_notification_severity"></a> [min\_notification\_severity](#input\_min\_notification\_severity) | Minimum severity threshold for sending notifications (critical, high, medium, low, info) | `string` | `"medium"` | no |
 | <a name="input_notification_cooldown_minutes"></a> [notification\_cooldown\_minutes](#input\_notification\_cooldown\_minutes) | Cooldown period in minutes between notifications for the same rule to prevent alert fatigue | `number` | `60` | no |
 | <a name="input_project"></a> [project](#input\_project) | The name of the project for tagging and identification | `string` | `"TrailAlerts"` | no |
 | <a name="input_ses_identities"></a> [ses\_identities](#input\_ses\_identities) | List of SES identities to verify and use for email notifications | `list(string)` | `[]` | no |
+| <a name="input_sns_kms_master_key_id"></a> [sns\_kms\_master\_key\_id](#input\_sns\_kms\_master\_key\_id) | KMS key ID or alias used to encrypt the SNS alerts topic. Defaults to the AWS-managed SNS key. | `string` | `"alias/aws/sns"` | no |
 | <a name="input_source_email"></a> [source\_email](#input\_source\_email) | Email address to use as the source for email notifications | `string` | `""` | no |
+| <a name="input_sqs_kms_master_key_id"></a> [sqs\_kms\_master\_key\_id](#input\_sqs\_kms\_master\_key\_id) | KMS key ID or alias used to encrypt the SQS alerts queue. Defaults to the AWS-managed SQS key. | `string` | `"alias/aws/sqs"` | no |
 | <a name="input_vpnapi_key"></a> [vpnapi\_key](#input\_vpnapi\_key) | API key for VPN service integration | `string` | `""` | no |
-| <a name="input_webhook_url"></a> [webhook\_url](#input\_webhook\_url) | Webhook URL to POST alert notifications to. Runs alongside the configured SNS or SES notification path | `string` | `""` | no |
-| <a name="input_webhook_headers"></a> [webhook\_headers](#input\_webhook\_headers) | Optional HTTP headers to include on webhook requests (e.g. Authorization tokens) | `map(string)` | `{}` | no |
-| <a name="input_enable_dashboard"></a> [enable\_dashboard](#input\_enable\_dashboard) | Whether to create the web dashboard (Cognito, API Gateway, Lambda, S3, CloudFront) | `bool` | `false` | no |
-| <a name="input_dashboard_admin_emails"></a> [dashboard\_admin\_emails](#input\_dashboard\_admin\_emails) | Email addresses created as admin users in the dashboard Cognito User Pool | `list(string)` | `[]` | no |
-| <a name="input_dashboard_api_cors_allowed_origins"></a> [dashboard\_api\_cors\_allowed\_origins](#input\_dashboard\_api\_cors\_allowed\_origins) | Optional CORS origins for direct browser access to the dashboard API. Leave empty when using the CloudFront dashboard URL | `list(string)` | `[]` | no |
+| <a name="input_vpnapi_key_secret_arn"></a> [vpnapi\_key\_secret\_arn](#input\_vpnapi\_key\_secret\_arn) | Optional Secrets Manager secret ARN containing the VPN API key. Prefer this over vpnapi\_key for production deployments. | `string` | `""` | no |
+| <a name="input_webhook_headers"></a> [webhook\_headers](#input\_webhook\_headers) | Optional HTTP headers to include on webhook requests. Prefer webhook\_headers\_secret\_arn for Authorization tokens or other sensitive values. | `map(string)` | `{}` | no |
+| <a name="input_webhook_headers_secret_arn"></a> [webhook\_headers\_secret\_arn](#input\_webhook\_headers\_secret\_arn) | Optional Secrets Manager secret ARN containing webhook headers as a JSON object. Prefer this over webhook\_headers for production deployments. | `string` | `""` | no |
+| <a name="input_webhook_url"></a> [webhook\_url](#input\_webhook\_url) | Webhook URL to POST alert notifications to. Prefer webhook\_url\_secret\_arn when the URL contains embedded credentials or tokens. | `string` | `""` | no |
+| <a name="input_webhook_url_secret_arn"></a> [webhook\_url\_secret\_arn](#input\_webhook\_url\_secret\_arn) | Optional Secrets Manager secret ARN containing the webhook URL. Prefer this over webhook\_url for production deployments. | `string` | `""` | no |
 
 ## Outputs
 
 | Name | Description |
 |------|-------------|
-| <a name="output_trailalerts_cloudtrail_analyzer_log_group_arn"></a> [trailalerts\_cloudtrail\_analyzer\_log\_group\_arn](#output\_trailalerts\_cloudtrail\_analyzer\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the CloudTrail Analyzer Lambda function |
-| <a name="output_trailalerts_event_processor_log_group_arn"></a> [trailalerts\_event\_processor\_log\_group\_arn](#output\_trailalerts\_event\_processor\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the Event Processor Lambda function |
-| <a name="output_trailalerts_guardduty_ingester_log_group_arn"></a> [trailalerts\_guardduty\_ingester\_log\_group\_arn](#output\_trailalerts\_guardduty\_ingester\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the GuardDuty Ingester Lambda function |
-| <a name="output_guardduty_export_destination_ids"></a> [guardduty\_export\_destination\_ids](#output\_guardduty\_export\_destination\_ids) | GuardDuty publishing destination IDs keyed by region |
-| <a name="output_guardduty_export_bucket_policy_json"></a> [guardduty\_export\_bucket\_policy\_json](#output\_guardduty\_export\_bucket\_policy\_json) | Policy document that can be merged into the central GuardDuty export bucket policy |
-| <a name="output_guardduty_export_kms_key_policy_json"></a> [guardduty\_export\_kms\_key\_policy\_json](#output\_guardduty\_export\_kms\_key\_policy\_json) | Policy document that can be merged into the GuardDuty export KMS key policy |
-| <a name="output_dashboard_url"></a> [dashboard\_url](#output\_dashboard\_url) | URL to access the TrailAlerts dashboard (only when enable\_dashboard is true) |
 | <a name="output_dashboard_api_endpoint"></a> [dashboard\_api\_endpoint](#output\_dashboard\_api\_endpoint) | API Gateway endpoint for the dashboard API (only when enable\_dashboard is true) |
 | <a name="output_dashboard_cognito_user_pool_id"></a> [dashboard\_cognito\_user\_pool\_id](#output\_dashboard\_cognito\_user\_pool\_id) | Cognito User Pool ID for the dashboard (only when enable\_dashboard is true) |
+| <a name="output_dashboard_url"></a> [dashboard\_url](#output\_dashboard\_url) | URL to access the TrailAlerts dashboard (only when enable\_dashboard is true) |
+| <a name="output_guardduty_export_bucket_policy_json"></a> [guardduty\_export\_bucket\_policy\_json](#output\_guardduty\_export\_bucket\_policy\_json) | Policy document that can be merged into the central GuardDuty export bucket policy (only when enable\_guardduty\_export\_destinations is true) |
+| <a name="output_guardduty_export_destination_ids"></a> [guardduty\_export\_destination\_ids](#output\_guardduty\_export\_destination\_ids) | GuardDuty publishing destination IDs keyed by region (only when enable\_guardduty\_export\_destinations is true) |
+| <a name="output_guardduty_export_kms_key_policy_json"></a> [guardduty\_export\_kms\_key\_policy\_json](#output\_guardduty\_export\_kms\_key\_policy\_json) | Policy document that can be merged into the GuardDuty export KMS key policy (only when enable\_guardduty\_export\_destinations is true) |
+| <a name="output_trailalerts_cloudtrail_analyzer_log_group_arn"></a> [trailalerts\_cloudtrail\_analyzer\_log\_group\_arn](#output\_trailalerts\_cloudtrail\_analyzer\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the CloudTrail Analyzer Lambda function |
+| <a name="output_trailalerts_event_processor_log_group_arn"></a> [trailalerts\_event\_processor\_log\_group\_arn](#output\_trailalerts\_event\_processor\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the Event Processor Lambda function |
+| <a name="output_trailalerts_guardduty_ingester_log_group_arn"></a> [trailalerts\_guardduty\_ingester\_log\_group\_arn](#output\_trailalerts\_guardduty\_ingester\_log\_group\_arn) | The ARN of the CloudWatch Log Group for the GuardDuty Ingester Lambda function (only when enable\_guardduty\_ingestion is true) |
 <!-- END_TF_DOCS -->

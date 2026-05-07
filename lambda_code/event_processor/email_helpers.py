@@ -3,6 +3,7 @@ from botocore.exceptions import ClientError
 import html
 import logging
 import os
+import uuid
 from typing import List, Dict, Any, Optional
 
 
@@ -148,15 +149,15 @@ def generate_email_html(style: str, sections: List[str], alert_title: str = "Sec
         """
         return html_template
     except Exception as e:
-        logging.error(f"Failed to generate HTML email: {str(e)}")
+        error_id = uuid.uuid4().hex[:8]
+        logging.error(f"Failed to generate HTML email [error_id={error_id}]: {str(e)}", exc_info=True)
         # Return a simple fallback template
         return f"""
             <!DOCTYPE html>
             <html>
             <body>
                 <h1>{_escape_text(alert_title or 'TrailAlerts Alert')}</h1>
-                <p>Error generating formatted email. Please check the logs.</p>
-                <pre>{str(e)}</pre>
+                <p>Error generating formatted email. Please check the logs for error ID {error_id}.</p>
             </body>
             </html>
         """
